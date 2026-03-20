@@ -1,0 +1,26 @@
+{
+  "tools": [
+    {
+      "id": "comfy_prompt",
+      "name": "ComfyUI Prompt 工具",
+      "description": "用于发送 ComfyUI prompt 请求，支持占位符替换",
+      "path": "comfy_prompt_gui.py",
+      "icon": null,
+      "category": "核心工具"
+    },
+    {
+      "id": "comfyui_json_replacer",
+      "name": "ComfyUI JSON 字段替换工具",
+      "description": "便捷地替换 ComfyUI 工作流 JSON 中指定节点的输入字段值",
+      "path": "Comfyui_json_replacer/comfyui_json_replacer.py",
+      "icon": null,
+      "category": "工作流工具"
+    }
+  ],
+  "app_config": {
+    "title": "工具箱管理器",
+    "window_width": 900,
+    "window_height": 700,
+    "theme": "light"
+  }
+}
