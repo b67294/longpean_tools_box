@@ -1,9 +1,18 @@
 import json
+import re
+import threading
 import tkinter as tk
+import urllib.error
+import urllib.request
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from tkinter import messagebox, scrolledtext, ttk
 from typing import Any, Optional
+
+
+PLACEHOLDER_PATTERN = re.compile(r"#\{[^{}]+\}")
+DEFAULT_COMFY_PROMPT_URL = "http://117.50.221.230:6099/prompt"
 
 
 @dataclass
@@ -41,6 +50,8 @@ class ComfyUIJsonUnitApp:
 
         self.saved_units: list[dict[str, str]] = self._load_units_store()
         self.current_json_data: dict[str, Any] = {}
+        self.comfy_url_var = tk.StringVar(value=DEFAULT_COMFY_PROMPT_URL)
+        self.client_id = str(uuid.uuid4())
 
         self._build_ui()
         self._refresh_unit_listbox()
@@ -92,6 +103,12 @@ class ComfyUIJsonUnitApp:
         )
         self.placeholder_rules_text.pack(fill=tk.BOTH, expand=True)
 
+        note_frame = ttk.Labelframe(left_panel, text="备注", padding=8)
+        note_frame.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
+
+        self.note_text = scrolledtext.ScrolledText(note_frame, wrap=tk.WORD, font=("Consolas", 10), height=6)
+        self.note_text.pack(fill=tk.BOTH, expand=True)
+
         right_panel = ttk.Labelframe(middle, text="API JSON", padding=8)
         middle.add(right_panel, weight=3)
 
@@ -101,6 +118,19 @@ class ComfyUIJsonUnitApp:
         ttk.Button(json_toolbar, text="格式化 JSON", command=self._format_json).pack(side=tk.LEFT, padx=2)
         ttk.Button(json_toolbar, text="验证 JSON", command=self._validate_json).pack(side=tk.LEFT, padx=2)
         ttk.Button(json_toolbar, text="清空 JSON", command=self._clear_json_text).pack(side=tk.LEFT, padx=2)
+        ttk.Button(json_toolbar, text="从 JSON 提取占位符规则", command=self._extract_placeholder_rules_from_json).pack(
+            side=tk.LEFT, padx=2
+        )
+        ttk.Button(json_toolbar, text="按占位符规则提取源数据", command=self._extract_source_rules_by_placeholder).pack(
+            side=tk.LEFT, padx=2
+        )
+
+        post_toolbar = ttk.Frame(right_panel)
+        post_toolbar.pack(fill=tk.X, pady=(0, 6))
+        ttk.Label(post_toolbar, text="Comfy 接口:").pack(side=tk.LEFT)
+        self.comfy_url_entry = ttk.Entry(post_toolbar, textvariable=self.comfy_url_var)
+        self.comfy_url_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, 6))
+        ttk.Button(post_toolbar, text="POST 下发任务", command=self._post_prompt_to_comfy).pack(side=tk.LEFT)
 
         self.json_text = scrolledtext.ScrolledText(right_panel, wrap=tk.WORD, font=("Consolas", 10))
         self.json_text.pack(fill=tk.BOTH, expand=True)
@@ -138,6 +168,7 @@ class ComfyUIJsonUnitApp:
                             "json_text": str(item.get("json_text", "")),
                             "source_rules_text": str(item.get("source_rules_text", "")),
                             "placeholder_rules_text": str(item.get("placeholder_rules_text", "")),
+                            "note_text": str(item.get("note_text", "")),
                         }
                     )
                 return [unit for unit in valid_units if unit["name"]]
@@ -164,6 +195,7 @@ class ComfyUIJsonUnitApp:
         self.unit_name_var.set("")
         self._clear_editor_text(self.source_rules_text)
         self._clear_editor_text(self.placeholder_rules_text)
+        self._clear_editor_text(self.note_text)
         self._clear_editor_text(self.json_text)
         self.current_json_data = {}
         self.units_listbox.selection_clear(0, tk.END)
@@ -179,6 +211,7 @@ class ComfyUIJsonUnitApp:
         self.unit_name_var.set(unit["name"])
         self._set_editor_text(self.source_rules_text, unit.get("source_rules_text", ""))
         self._set_editor_text(self.placeholder_rules_text, unit.get("placeholder_rules_text", ""))
+        self._set_editor_text(self.note_text, unit.get("note_text", ""))
         self._set_editor_text(self.json_text, unit.get("json_text", ""))
         self._log(f"已加载单元: {unit['name']}")
 
@@ -211,6 +244,7 @@ class ComfyUIJsonUnitApp:
             "json_text": self.json_text.get("1.0", tk.END).strip(),
             "source_rules_text": self.source_rules_text.get("1.0", tk.END).strip(),
             "placeholder_rules_text": self.placeholder_rules_text.get("1.0", tk.END).strip(),
+            "note_text": self.note_text.get("1.0", tk.END).strip(),
         }
 
         existing_index = next((i for i, unit in enumerate(self.saved_units) if unit["name"] == name), None)
@@ -346,6 +380,114 @@ class ComfyUIJsonUnitApp:
     def _clear_json_text(self) -> None:
         self._clear_editor_text(self.json_text)
         self.current_json_data = {}
+
+    def _extract_placeholder_rules_from_json(self) -> None:
+        data = self._get_json_data()
+        if data is None:
+            return
+
+        lines: list[str] = []
+        for node_id, node in data.items():
+            if not isinstance(node, dict):
+                continue
+            inputs = node.get("inputs")
+            if not isinstance(inputs, dict):
+                continue
+            for field_name, field_value in inputs.items():
+                if not isinstance(field_value, str):
+                    continue
+                matches = list(dict.fromkeys(PLACEHOLDER_PATTERN.findall(field_value)))
+                for token in matches:
+                    lines.append(f"{node_id},{field_name},{token}")
+
+        self._set_editor_text(self.placeholder_rules_text, "\n".join(lines))
+        self._log(f"已从 JSON 提取占位符规则 {len(lines)} 条，并覆盖写入占位符规则区")
+        messagebox.showinfo("提取完成", f"已提取占位符规则 {len(lines)} 条")
+
+    def _serialize_rule_value(self, value: Any) -> str:
+        if isinstance(value, str):
+            return value
+        return json.dumps(value, ensure_ascii=False)
+
+    def _extract_source_rules_by_placeholder(self) -> None:
+        rules_text = self.placeholder_rules_text.get("1.0", tk.END).strip()
+        placeholder_rules, errors = self._parse_rules_text(rules_text)
+        if errors:
+            messagebox.showerror("规则错误", "\n".join(errors))
+            return
+        if not placeholder_rules:
+            messagebox.showwarning("提示", "占位符规则为空，无法提取源数据")
+            return
+
+        data = self._get_json_data()
+        if data is None:
+            return
+
+        source_lines: list[str] = []
+        success_count = 0
+        for rule in placeholder_rules:
+            node = data.get(rule.node_id)
+            if not isinstance(node, dict):
+                self._log(f"[警告] 节点 {rule.node_id} 不存在，跳过")
+                continue
+            inputs = node.get("inputs")
+            if not isinstance(inputs, dict):
+                self._log(f"[警告] 节点 {rule.node_id} 缺少 inputs，跳过")
+                continue
+            if rule.input_field not in inputs:
+                self._log(f"[警告] 节点 {rule.node_id} 不含字段 {rule.input_field}，跳过")
+                continue
+
+            real_value = inputs[rule.input_field]
+            source_lines.append(f"{rule.node_id},{rule.input_field},{self._serialize_rule_value(real_value)}")
+            success_count += 1
+
+        self._set_editor_text(self.source_rules_text, "\n".join(source_lines))
+        self._log(f"已根据占位符规则提取源数据 {success_count} 条，并覆盖写入源数据规则区")
+        messagebox.showinfo("提取完成", f"已提取源数据规则 {success_count} 条")
+
+    def _post_prompt_to_comfy(self) -> None:
+        url = self.comfy_url_var.get().strip()
+        if not url:
+            messagebox.showwarning("提示", "请先填写 Comfy 接口地址")
+            return
+
+        data = self._get_json_data()
+        if data is None:
+            return
+
+        payload = {
+            "prompt": data,
+            "client_id": self.client_id,
+        }
+        payload_bytes = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+        self._log(f"开始 POST 下发任务 -> {url}")
+        threading.Thread(target=self._post_prompt_worker, args=(url, payload_bytes), daemon=True).start()
+
+    def _post_prompt_worker(self, url: str, payload_bytes: bytes) -> None:
+        request = urllib.request.Request(
+            url=url,
+            data=payload_bytes,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                body = response.read().decode("utf-8", errors="replace")
+                status = response.status
+                self.root.after(0, self._on_post_complete, status, body)
+        except urllib.error.HTTPError as error:
+            body = error.read().decode("utf-8", errors="replace") if error.fp else str(error)
+            self.root.after(0, self._on_post_complete, error.code, body)
+        except Exception as error:
+            self.root.after(0, self._on_post_complete, "ERROR", str(error))
+
+    def _on_post_complete(self, status: Any, body: str) -> None:
+        self._log(f"POST 完成，状态码: {status}")
+        self._log(body)
+        self._log("-" * 80)
 
     def _clear_log(self) -> None:
         self.log_text.config(state=tk.NORMAL)

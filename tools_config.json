@@ -15,6 +15,14 @@
       "path": "Comfyui_json_replacer/comfyui_json_replacer.py",
       "icon": null,
       "category": "工作流工具"
+    },
+    {
+      "id": "rgba_image_browser",
+      "name": "RGBA 图像浏览器",
+      "description": "上传 RGBA 图并查看 RGBA 预览、去 Alpha 后 RGB、像素 RGBA 取值",
+      "path": "RGBA_image_browser/rgba_image_browser.py",
+      "icon": null,
+      "category": "图像工具"
     }
   ],
   "app_config": {
