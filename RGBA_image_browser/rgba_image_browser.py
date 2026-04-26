@@ -48,6 +48,8 @@ class RgbaImageBrowser:
 
         # 添加上传按钮和图像信息标签
         ttk.Button(top_bar, text="上传 RGBA 图", command=self._open_image).pack(side=tk.LEFT)
+        ttk.Button(top_bar, text="白色透明化", command=self._make_white_transparent).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(top_bar, text="保存图像", command=self._save_image).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Label(top_bar, textvariable=self.image_info_var, foreground="#1f6feb").pack(side=tk.LEFT, padx=(12, 0))
 
         # 创建主框架
@@ -272,6 +274,105 @@ class RgbaImageBrowser:
         r, g, b = self.source_rgb.getpixel((src_x, src_y))
         mode_text = "RGBA视图" if self.pick_view_mode.get() == "rgba" else "RGB视图"
         self.pixel_value_var.set(f"{mode_text} (x={src_x}, y={src_y}) -> R={r}, G={g}, B={b}")
+
+    def _make_white_transparent(self) -> None:
+        """
+        将白色像素转换为透明
+        """
+        if self.source_rgba is None:
+            messagebox.showwarning("提示", "请先上传图像")
+            return
+        
+        # 创建阈值输入对话框
+        dialog = tk.Toplevel(self.root)
+        dialog.title("白色透明化设置")
+        dialog.geometry("300x150")
+        dialog.resizable(False, False)
+        
+        # 居中显示
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # 标签和输入框
+        ttk.Label(dialog, text="RGB阈值 (0-255):").pack(pady=(10, 5))
+        ttk.Label(dialog, text="0 = 仅纯白色(255,255,255)", font=("", 9), foreground="gray").pack()
+        ttk.Label(dialog, text="20 = 包括浅灰色(235-255,235-255,235-255)", font=("", 9), foreground="gray").pack()
+        
+        threshold_var = tk.IntVar(value=0)
+        threshold_scale = ttk.Scale(
+            dialog, from_=0, to=255, variable=threshold_var, orient=tk.HORIZONTAL
+        )
+        threshold_scale.pack(fill=tk.X, padx=10, pady=10)
+        
+        threshold_label = ttk.Label(dialog, text="当前值: 0")
+        threshold_label.pack()
+        
+        def update_label(_event=None):
+            threshold_label.config(text=f"当前值: {threshold_var.get()}")
+        
+        threshold_scale.bind("<B1-Motion>", update_label)
+        threshold_scale.bind("<Button-1>", update_label)
+        
+        def apply_transparent():
+            threshold = threshold_var.get()
+            try:
+                # 进行转换
+                pixels = self.source_rgba.load()
+                width, height = self.source_rgba.size
+                count = 0
+                
+                for y in range(height):
+                    for x in range(width):
+                        r, g, b, a = pixels[x, y]
+                        # 判断是否为白色
+                        if (r >= 255 - threshold and 
+                            g >= 255 - threshold and 
+                            b >= 255 - threshold):
+                            pixels[x, y] = (r, g, b, 0)
+                            count += 1
+                
+                # 更新RGB版本
+                r_channel, g_channel, b_channel, _ = self.source_rgba.split()
+                self.source_rgb = Image.merge("RGB", (r_channel, g_channel, b_channel))
+                
+                # 重新渲染视图
+                self._render_views()
+                
+                messagebox.showinfo("成功", f"已转换 {count} 个像素为透明\n阈值: {threshold}")
+                dialog.destroy()
+                
+            except Exception as e:
+                messagebox.showerror("失败", f"转换失败: {e}")
+        
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(pady=10)
+        ttk.Button(button_frame, text="应用", command=apply_transparent).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="取消", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+
+    def _save_image(self) -> None:
+        """
+        保存当前图像
+        """
+        if self.source_rgba is None:
+            messagebox.showwarning("提示", "请先上传图像")
+            return
+        
+        file_path = filedialog.asksaveasfilename(
+            defaultextension=".png",
+            filetypes=[
+                ("PNG 图像", "*.png"),
+                ("所有文件", "*.*"),
+            ],
+        )
+        
+        if not file_path:
+            return
+        
+        try:
+            self.source_rgba.save(file_path, "PNG")
+            messagebox.showinfo("成功", f"图像已保存到:\n{file_path}")
+        except Exception as e:
+            messagebox.showerror("保存失败", f"无法保存图像:\n{e}")
 
 
 def main() -> None:

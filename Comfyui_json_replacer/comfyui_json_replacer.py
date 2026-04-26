@@ -12,7 +12,7 @@ from typing import Any, Optional
 
 
 PLACEHOLDER_PATTERN = re.compile(r"#\{[^{}]+\}")
-DEFAULT_COMFY_PROMPT_URL = "http://117.50.221.230:6099/prompt"
+DEFAULT_COMFY_PROMPT_URL = "http://117.50.174.91:6099/prompt"
 
 
 @dataclass
@@ -78,6 +78,7 @@ class ComfyUIJsonUnitApp:
         self.units_listbox = tk.Listbox(list_wrap, height=5)
         self.units_listbox.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.units_listbox.bind("<<ListboxSelect>>", self._on_unit_select)
+        self.units_listbox.bind("<Button-3>", self._on_unit_listbox_right_click)
 
         units_scrollbar = ttk.Scrollbar(list_wrap, orient=tk.VERTICAL, command=self.units_listbox.yview)
         units_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -122,6 +123,9 @@ class ComfyUIJsonUnitApp:
             side=tk.LEFT, padx=2
         )
         ttk.Button(json_toolbar, text="按占位符规则提取源数据", command=self._extract_source_rules_by_placeholder).pack(
+            side=tk.LEFT, padx=2
+        )
+        ttk.Button(json_toolbar, text="保存图像节点改为saveFile", command=self._rename_save_image_nodes).pack(
             side=tk.LEFT, padx=2
         )
 
@@ -232,6 +236,60 @@ class ComfyUIJsonUnitApp:
         self._refresh_unit_listbox()
         self._clear_current_editors()
         self._log(f"已删除单元: {unit_name}")
+
+    def _on_unit_listbox_right_click(self, event: tk.Event) -> None:
+        """处理 listbox 右键重命名"""
+        # 获取右键点击的行
+        index = self.units_listbox.nearest(event.y)
+        if index < 0 or index >= len(self.saved_units):
+            return
+
+        # 弹出输入对话框
+        old_name = self.saved_units[index]["name"]
+        dialog = tk.Toplevel(self.root)
+        dialog.title("重命名单元")
+        dialog.geometry("300x120")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        ttk.Label(dialog, text="新名称:").pack(pady=5)
+        name_entry = ttk.Entry(dialog, width=30)
+        name_entry.pack(pady=5)
+        name_entry.insert(0, old_name)
+        name_entry.select_range(0, tk.END)
+        name_entry.focus()
+
+        def confirm_rename():
+            new_name = name_entry.get().strip()
+            if not new_name:
+                messagebox.showwarning("提示", "单元名称不能为空")
+                return
+            if new_name == old_name:
+                dialog.destroy()
+                return
+            # 检查是否有重名
+            if any(unit["name"] == new_name for i, unit in enumerate(self.saved_units) if i != index):
+                messagebox.showwarning("提示", f"单元名称 '{new_name}' 已存在")
+                return
+
+            # 更新单元名称
+            self.saved_units[index]["name"] = new_name
+            self.saved_units.sort(key=lambda item: item["name"].lower())
+            self._save_units_store()
+            self._refresh_unit_listbox()
+
+            # 选中更新后的单元
+            new_index = next((i for i, unit in enumerate(self.saved_units) if unit["name"] == new_name), None)
+            if new_index is not None:
+                self.units_listbox.selection_clear(0, tk.END)
+                self.units_listbox.selection_set(new_index)
+                self.units_listbox.see(new_index)
+
+            messagebox.showinfo("成功", f"已将单元 '{old_name}' 重命名为 '{new_name}'")
+            dialog.destroy()
+
+        ttk.Button(dialog, text="确认", command=confirm_rename).pack(pady=5)
+        dialog.bind("<Return>", lambda e: confirm_rename())
 
     def _save_current_unit(self) -> None:
         name = self.unit_name_var.get().strip()
@@ -493,6 +551,64 @@ class ComfyUIJsonUnitApp:
         self.log_text.config(state=tk.NORMAL)
         self.log_text.delete("1.0", tk.END)
         self.log_text.config(state=tk.DISABLED)
+
+    def _rename_save_image_nodes(self) -> None:
+        """将 SaveImage 节点的编号改为固定的 'saveFile'"""
+        data = self._get_json_data()
+        if data is None:
+            return
+
+        self._clear_log()
+        self._log("开始处理：SaveImage 节点重命名")
+        self._log("=" * 80)
+
+        save_image_nodes = {}
+        for node_id, node in data.items():
+            if isinstance(node, dict) and node.get("class_type") == "SaveImage":
+                save_image_nodes[node_id] = node
+
+        if not save_image_nodes:
+            messagebox.showinfo("提示", "JSON 中未找到 SaveImage 节点")
+            self._log("未找到任何 SaveImage 节点")
+            return
+
+        # 如果存在多个 SaveImage 节点，需要合并它们
+        if len(save_image_nodes) > 1:
+            self._log(f"[信息] 发现 {len(save_image_nodes)} 个 SaveImage 节点，将合并为一个")
+            # 使用第一个节点的数据
+            save_file_node = list(save_image_nodes.values())[0]
+            self._log(f"[信息] 保留节点: {list(save_image_nodes.keys())[0]}")
+        else:
+            save_file_node = list(save_image_nodes.values())[0]
+
+        # 更新所有引用旧节点编号的地方
+        # 遍历所有节点，找到引用 SaveImage 节点的地方
+        for node_id, node in data.items():
+            if isinstance(node, dict):
+                inputs = node.get("inputs", {})
+                if isinstance(inputs, dict):
+                    for field_name, field_value in inputs.items():
+                        # 处理引用（通常是 [node_id, output_index] 这样的格式）
+                        if isinstance(field_value, list) and len(field_value) >= 1:
+                            if str(field_value[0]) in save_image_nodes:
+                                field_value[0] = "saveFile"
+                                self._log(f"[更新] 节点 {node_id} 的字段 {field_name} 引用已更新")
+
+        # 重新构建 JSON，将所有 SaveImage 节点删除，只保留 saveFile
+        new_data = {}
+        for node_id, node in data.items():
+            if node_id not in save_image_nodes:
+                new_data[node_id] = node
+
+        # 添加合并后的 saveFile 节点
+        new_data["saveFile"] = save_file_node
+
+        self._log("=" * 80)
+        self._log(f"[成功] 已将 {len(save_image_nodes)} 个 SaveImage 节点改为 'saveFile'")
+
+        self.current_json_data = new_data
+        self._set_editor_text(self.json_text, json.dumps(new_data, ensure_ascii=False, indent=2))
+        messagebox.showinfo("完成", f"已将 {len(save_image_nodes)} 个 SaveImage 节点改为 'saveFile'")
 
     def _log(self, message: str) -> None:
         self.log_text.config(state=tk.NORMAL)

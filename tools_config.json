@@ -23,6 +23,22 @@
       "path": "RGBA_image_browser/rgba_image_browser.py",
       "icon": null,
       "category": "图像工具"
+    },
+    {
+      "id": "png_rgba_uploader",
+      "name": "PNG RGBA 批量上传工具",
+      "description": "预处理 PNG RGBA 图片（填充透明区），支持批量上传到云端，自动处理中文文件名",
+      "path": "image_get_url/get_url_lp.py",
+      "icon": null,
+      "category": "图像工具"
+    },
+    {
+      "id": "white_to_transparent",
+      "name": "白色透明化工具",
+      "description": "将图片中RGB值为全白的像素的ALPHA值设置为透明，支持单个和批量处理",
+      "path": "white_to_transparent_gui.py",
+      "icon": null,
+      "category": "图像工具"
     }
   ],
   "app_config": {
