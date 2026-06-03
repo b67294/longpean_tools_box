@@ -272,6 +272,10 @@ textarea:focus {
   margin-bottom: 12px;
 }
 
+.hidden {
+  display: none !important;
+}
+
 .field span,
 .section-title {
   color: #445466;

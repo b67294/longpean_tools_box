@@ -68,6 +68,7 @@ class UploadImagePayload(BaseModel):
 class UploadPayload(BaseModel):
     upload_url: str = DEFAULT_UPLOAD_URL
     fill_hex: str = "#FFFFFF"
+    preprocess: bool = False
     images: list[UploadImagePayload]
 
 
@@ -218,7 +219,9 @@ def upload_png_bytes(file_name: str, png_bytes: bytes, upload_url: str) -> str:
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+    response = FileResponse(STATIC_DIR / "index.html")
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return response
 
 
 @app.get("/api/health")
@@ -411,21 +414,26 @@ def white_transparent(payload: ImagePayload) -> dict[str, Any]:
 
 @app.post("/api/upload/images")
 def upload_images(payload: UploadPayload) -> dict[str, Any]:
-    fill_rgb = parse_hex_color(payload.fill_hex)
+    fill_rgb = parse_hex_color(payload.fill_hex) if payload.preprocess else None
     results = []
     for image_item in payload.images:
         try:
-            image = Image.open(io.BytesIO(decode_data_url(image_item.data_url))).convert("RGBA")
-            pixels = image.load()
-            for y in range(image.height):
-                for x in range(image.width):
-                    red, green, blue, alpha = pixels[x, y]
-                    if alpha == 0:
-                        pixels[x, y] = (fill_rgb[0], fill_rgb[1], fill_rgb[2], 0)
-            output = io.BytesIO()
-            image.save(output, format="PNG")
-            safe_name = f"{uuid.uuid4()}{Path(image_item.file_name).suffix or '.png'}"
-            url = upload_png_bytes(safe_name, output.getvalue(), payload.upload_url.strip())
+            image_bytes = decode_data_url(image_item.data_url)
+            suffix = Path(image_item.file_name).suffix or ".png"
+            if payload.preprocess:
+                image = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+                pixels = image.load()
+                for y in range(image.height):
+                    for x in range(image.width):
+                        red, green, blue, alpha = pixels[x, y]
+                        if alpha == 0 and fill_rgb is not None:
+                            pixels[x, y] = (fill_rgb[0], fill_rgb[1], fill_rgb[2], 0)
+                output = io.BytesIO()
+                image.save(output, format="PNG")
+                image_bytes = output.getvalue()
+                suffix = ".png"
+            safe_name = f"{uuid.uuid4()}{suffix}"
+            url = upload_png_bytes(safe_name, image_bytes, payload.upload_url.strip())
             results.append({"file_name": image_item.file_name, "ok": True, "url": url})
         except Exception as exc:
             results.append({"file_name": image_item.file_name, "ok": False, "error": str(exc)})

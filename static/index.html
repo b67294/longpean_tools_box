@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tool Box</title>
-    <link rel="stylesheet" href="/static/style.css" />
+    <link rel="stylesheet" href="/static/style.css?v=20260603-upload-buttons" />
   </head>
   <body>
     <div class="app-shell">
@@ -162,7 +162,10 @@
             <div class="panel">
               <div class="panel-head">
                 <h3>批量上传</h3>
-                <button id="uploadBtn" class="primary">开始上传</button>
+                <div class="actions">
+                  <button id="directUploadBtn" class="primary">直接上传</button>
+                  <button id="preprocessUploadBtn">预处理后上传</button>
+                </div>
               </div>
               <label id="uploadDropZone" class="drop-zone">
                 <input id="uploadInput" type="file" accept="image/*" multiple />
@@ -172,7 +175,7 @@
                 <span>上传接口</span>
                 <input id="uploadUrl" value="https://stpic.longpean.com/picture/upLoadQiNiu" />
               </label>
-              <label class="field">
+              <label id="fillHexField" class="field">
                 <span>透明像素填充色</span>
                 <input id="fillHex" value="#FFFFFF" />
               </label>
@@ -189,6 +192,6 @@
         </section>
       </main>
     </div>
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=20260603-upload-buttons"></script>
   </body>
 </html>

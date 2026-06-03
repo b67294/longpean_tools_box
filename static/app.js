@@ -372,12 +372,12 @@ function renderUploadFiles() {
   });
 }
 
-async function uploadImages() {
+async function uploadImages(preprocess = false) {
   if (!state.uploadFiles.length) {
     toast("请先选择图片", true);
     return;
   }
-  $("uploadResult").textContent = "正在读取文件并上传...";
+  $("uploadResult").textContent = preprocess ? "正在预处理并上传..." : "正在直接上传...";
   const images = [];
   for (const file of state.uploadFiles) {
     images.push({ file_name: file.name, data_url: await fileToDataUrl(file) });
@@ -385,6 +385,7 @@ async function uploadImages() {
   const data = await api("/api/upload/images", {
     upload_url: $("uploadUrl").value,
     fill_hex: $("fillHex").value,
+    preprocess,
     images,
   });
   const lines = (data.results || []).map((item) => {
@@ -392,7 +393,7 @@ async function uploadImages() {
     return `${item.file_name}: 上传失败 - ${item.error}`;
   });
   $("uploadResult").textContent = lines.join("\n");
-  toast("上传任务完成");
+  toast(preprocess ? "预处理上传完成" : "直接上传完成");
 }
 
 async function shutdownServer() {
@@ -400,13 +401,37 @@ async function shutdownServer() {
   if (!confirmed) return;
   $("shutdownBtn").disabled = true;
   $("shutdownBtn").textContent = "正在关闭...";
+  $("healthText").textContent = "正在关闭";
   try {
     const data = await api("/api/shutdown", {});
     toast(data.message || "本地服务正在关闭");
-    $("healthText").textContent = "正在关闭";
+    await waitForShutdown();
   } catch (_error) {
-    toast("本地服务可能已经关闭");
+    markServerClosed();
   }
+}
+
+function markServerClosed() {
+  $("healthText").textContent = "已关闭";
+  $("shutdownBtn").textContent = "已关闭，重新双击 exe 启动";
+  $("shutdownBtn").disabled = true;
+  toast("本地服务已关闭");
+}
+
+async function waitForShutdown() {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    try {
+      await fetch(`/api/health?t=${Date.now()}`, { cache: "no-store" });
+    } catch (_error) {
+      markServerClosed();
+      return;
+    }
+  }
+  $("healthText").textContent = "仍在运行";
+  $("shutdownBtn").disabled = false;
+  $("shutdownBtn").textContent = "再次关闭本地服务";
+  toast("服务仍在响应，可以再点一次关闭", true);
 }
 
 function bindEvents() {
@@ -459,7 +484,8 @@ function bindEvents() {
     renderUploadFiles();
     toast(`已加入 ${files.length} 张图片`);
   });
-  $("uploadBtn").addEventListener("click", () => run(uploadImages));
+  $("directUploadBtn").addEventListener("click", () => run(() => uploadImages(false)));
+  $("preprocessUploadBtn").addEventListener("click", () => run(() => uploadImages(true)));
   $("copyUploadResultBtn").addEventListener("click", async () => {
     await navigator.clipboard.writeText($("uploadResult").textContent);
     toast("上传结果已复制");

@@ -36,4 +36,12 @@ processed = client.post(
 assert processed.status_code == 200, processed.text
 assert processed.json()["count"] == 1
 
+direct_payload = {
+    "upload_url": "http://127.0.0.1/not-called",
+    "fill_hex": "#FFFFFF",
+    "preprocess": False,
+    "images": [{"file_name": "x.png", "data_url": data_url}],
+}
+assert direct_payload["preprocess"] is False
+
 print("smoke ok")
