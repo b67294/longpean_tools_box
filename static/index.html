@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tool Box</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260604-comfy-post-timeout" />
+    <link rel="stylesheet" href="/static/style.css?v=20260604-template-library-meta" />
   </head>
   <body>
     <div class="app-shell">
@@ -86,8 +86,14 @@
                 <button id="saveUnitBtn" class="primary">保存模板</button>
                 <button id="deleteUnitBtn">删除模板</button>
               </div>
+              <label class="field">
+                <span>搜索模板</span>
+                <input id="unitSearch" placeholder="输入关键字自动过滤" />
+              </label>
+              <div id="unitMeta" class="unit-meta">创建：未记录<br />修改：未记录</div>
               <div id="unitList" class="unit-list"></div>
             </div>
+            <div id="unitResizeHandle" class="unit-resize-handle" title="拖动调整模板库宽度" aria-hidden="true"></div>
             <div class="panel rules-panel">
               <div class="panel-head">
                 <h3>规则</h3>
@@ -203,6 +209,6 @@
         </section>
       </main>
     </div>
-    <script src="/static/app.js?v=20260604-comfy-post-timeout"></script>
+    <script src="/static/app.js?v=20260604-template-library-meta"></script>
   </body>
 </html>

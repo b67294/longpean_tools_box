@@ -4,6 +4,7 @@ const state = {
   promptPlaceholders: [],
   units: [],
   selectedUnit: null,
+  unitSearch: "",
   image: {
     fileName: "",
     sourceDataUrl: "",
@@ -458,6 +459,130 @@ async function waitForShutdown() {
   toast("服务仍在响应，可以再点一次关闭", true);
 }
 
+function formatUnitTime(value) {
+  return value || "未记录";
+}
+
+function updateUnitMeta(unit = null) {
+  const node = $("unitMeta");
+  if (!node) return;
+  node.innerHTML = `创建：${formatUnitTime(unit?.created_at)}<br />修改：${formatUnitTime(unit?.updated_at)}`;
+}
+
+function getFilteredUnits() {
+  const keyword = state.unitSearch.trim().toLowerCase();
+  if (!keyword) return state.units;
+  return state.units.filter((unit) => {
+    const text = `${unit.name || ""} ${unit.note_text || ""}`.toLowerCase();
+    return text.includes(keyword);
+  });
+}
+
+function renderUnits() {
+  const list = $("unitList");
+  list.innerHTML = "";
+  if (!state.units.length) {
+    list.textContent = "暂无模板";
+    list.classList.add("empty");
+    return;
+  }
+  const units = getFilteredUnits();
+  if (!units.length) {
+    list.textContent = "没有匹配的模板";
+    list.classList.add("empty");
+    return;
+  }
+  list.classList.remove("empty");
+  units.forEach((unit) => {
+    const button = document.createElement("button");
+    button.className = `unit-item${state.selectedUnit === unit.name ? " active" : ""}`;
+    const name = document.createElement("span");
+    name.className = "unit-item-name";
+    name.textContent = unit.name;
+    const meta = document.createElement("span");
+    meta.className = "unit-item-meta";
+    meta.textContent = `创建 ${formatUnitTime(unit.created_at)} · 修改 ${formatUnitTime(unit.updated_at)}`;
+    button.append(name, meta);
+    button.addEventListener("click", () => loadUnit(unit));
+    list.appendChild(button);
+  });
+}
+
+function bindUnitPanelResize() {
+  const layout = document.querySelector(".json-layout");
+  const handle = $("unitResizeHandle");
+  if (!layout || !handle) return;
+  const savedWidth = Number(localStorage.getItem("toolBoxUnitPanelWidth"));
+  if (savedWidth) {
+    layout.style.setProperty("--unit-panel-width", `${savedWidth}px`);
+  }
+
+  let resizing = false;
+  const finish = () => {
+    resizing = false;
+    document.body.classList.remove("resizing-unit-panel");
+  };
+
+  handle.addEventListener("pointerdown", (event) => {
+    resizing = true;
+    handle.setPointerCapture(event.pointerId);
+    document.body.classList.add("resizing-unit-panel");
+  });
+
+  handle.addEventListener("pointermove", (event) => {
+    if (!resizing) return;
+    const rect = layout.getBoundingClientRect();
+    const width = Math.max(240, Math.min(620, event.clientX - rect.left));
+    layout.style.setProperty("--unit-panel-width", `${width}px`);
+    localStorage.setItem("toolBoxUnitPanelWidth", String(Math.round(width)));
+  });
+
+  handle.addEventListener("pointerup", finish);
+  handle.addEventListener("pointercancel", finish);
+}
+
+function loadUnit(unit) {
+  state.selectedUnit = unit.name;
+  $("unitName").value = unit.name || "";
+  $("jsonEditor").value = unit.json_text || "";
+  $("sourceRules").value = unit.source_rules_text || "";
+  $("placeholderRules").value = unit.placeholder_rules_text || "";
+  $("unitNote").value = unit.note_text || "";
+  updateUnitMeta(unit);
+  $("jsonLog").textContent = `已加载模板：${unit.name}`;
+  renderUnits();
+}
+
+async function saveUnit() {
+  const data = await api("/api/units/save", {
+    name: $("unitName").value,
+    json_text: $("jsonEditor").value,
+    source_rules_text: $("sourceRules").value,
+    placeholder_rules_text: $("placeholderRules").value,
+    note_text: $("unitNote").value,
+  });
+  state.units = data.units || [];
+  state.selectedUnit = $("unitName").value.trim();
+  updateUnitMeta(state.units.find((unit) => unit.name === state.selectedUnit));
+  renderUnits();
+  toast("模板已保存");
+}
+
+async function deleteUnit() {
+  const name = $("unitName").value.trim();
+  if (!name) {
+    toast("先选择或输入模板名称", true);
+    return;
+  }
+  const data = await api("/api/units/delete", { name });
+  state.units = data.units || [];
+  state.selectedUnit = null;
+  $("unitName").value = "";
+  updateUnitMeta();
+  renderUnits();
+  toast("模板已删除");
+}
+
 function bindEvents() {
   document.addEventListener("dragover", (event) => event.preventDefault());
   document.addEventListener("drop", (event) => event.preventDefault());
@@ -472,6 +597,10 @@ function bindEvents() {
   $("refreshUnitsBtn").addEventListener("click", () => run(refreshUnits));
   $("saveUnitBtn").addEventListener("click", () => run(saveUnit));
   $("deleteUnitBtn").addEventListener("click", () => run(deleteUnit));
+  $("unitSearch").addEventListener("input", (event) => {
+    state.unitSearch = event.target.value;
+    renderUnits();
+  });
   $("jsonFormatBtn").addEventListener("click", () => run(() => formatTextarea("jsonEditor")));
   $("applySourceRulesBtn").addEventListener("click", () => run(() => applyRulesFrom("sourceRules")));
   $("applyPlaceholderRulesBtn").addEventListener("click", () => run(() => applyRulesFrom("placeholderRules")));
@@ -528,6 +657,8 @@ async function run(fn) {
 
 async function boot() {
   bindEvents();
+  bindUnitPanelResize();
+  updateUnitMeta();
   renderUploadFiles();
   renderImageCanvas();
   try {

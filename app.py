@@ -6,6 +6,7 @@ import re
 import threading
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib import error, request
@@ -60,6 +61,8 @@ class UnitPayload(BaseModel):
     source_rules_text: str = ""
     placeholder_rules_text: str = ""
     note_text: str = ""
+    created_at: str = ""
+    updated_at: str = ""
 
 
 class ImagePayload(BaseModel):
@@ -170,6 +173,8 @@ def load_units() -> list[dict[str, str]]:
                 "source_rules_text": str(item.get("source_rules_text", "")),
                 "placeholder_rules_text": str(item.get("placeholder_rules_text", "")),
                 "note_text": str(item.get("note_text", "")),
+                "created_at": str(item.get("created_at", "")),
+                "updated_at": str(item.get("updated_at", "")),
             }
         )
     return sorted(units, key=lambda item: item["name"].lower())
@@ -178,6 +183,10 @@ def load_units() -> list[dict[str, str]]:
 def save_units(units: list[dict[str, str]]) -> None:
     ensure_data_files()
     UNITS_STORE.write_text(json.dumps(units, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def now_text() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def decode_data_url(data_url: str) -> bytes:
@@ -429,8 +438,15 @@ def save_unit(payload: UnitPayload) -> dict[str, Any]:
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="模板名称不能为空")
-    units = [unit for unit in load_units() if unit["name"] != name]
-    units.append(payload.dict())
+    existing_units = load_units()
+    existing = next((unit for unit in existing_units if unit["name"] == name), None)
+    timestamp = now_text()
+    unit_data = payload.dict()
+    unit_data["name"] = name
+    unit_data["created_at"] = (existing or {}).get("created_at") or payload.created_at or timestamp
+    unit_data["updated_at"] = timestamp
+    units = [unit for unit in existing_units if unit["name"] != name]
+    units.append(unit_data)
     save_units(sorted(units, key=lambda item: item["name"].lower()))
     return {"units": load_units()}
 
