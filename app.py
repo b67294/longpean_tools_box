@@ -22,9 +22,11 @@ STATIC_DIR = BASE_DIR / "static"
 DATA_DIR = BASE_DIR / "data"
 UNITS_STORE = DATA_DIR / "json_units_store.json"
 DEFAULT_COMFY_URL = "http://117.50.174.91:6099/prompt"
+DEFAULT_COMPANY_COMFY_URL = "http://117.50.174.91:6070/"
 DEFAULT_UPLOAD_URL = "https://stpic.longpean.com/picture/upLoadQiNiu"
 PLACEHOLDER_PATTERN = re.compile(r"#\{([^{}]+)\}")
 RULE_PLACEHOLDER_PATTERN = re.compile(r"#\{[^{}]+\}")
+COMFY_CLIENT_ID = str(uuid.uuid4())
 
 app = FastAPI(title="Tool Box Web")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -44,6 +46,12 @@ class PromptSendPayload(BaseModel):
 class RulesPayload(BaseModel):
     json_text: str
     rules_text: str
+
+
+class ComfyJsonPostPayload(BaseModel):
+    url: str = DEFAULT_COMPANY_COMFY_URL
+    json_text: str
+    timeout_seconds: float = 12
 
 
 class UnitPayload(BaseModel):
@@ -217,6 +225,40 @@ def upload_png_bytes(file_name: str, png_bytes: bytes, upload_url: str) -> str:
     return "" if data is None else str(data)
 
 
+def normalize_comfy_prompt_url(url: str) -> str:
+    text = url.strip().rstrip("/")
+    if not text:
+        raise HTTPException(status_code=400, detail="ComfyUI 地址不能为空")
+    if text.endswith("/prompt"):
+        return text
+    return f"{text}/prompt"
+
+
+def post_json_to_comfy(url: str, prompt_data: Any, timeout_seconds: float = 12) -> dict[str, Any]:
+    prompt_url = normalize_comfy_prompt_url(url)
+    timeout = max(1, min(float(timeout_seconds), 120))
+    payload = {
+        "prompt": prompt_data,
+        "client_id": COMFY_CLIENT_ID,
+    }
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = request.Request(
+        url=prompt_url,
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with request.urlopen(req, timeout=timeout) as resp:
+            text = resp.read().decode("utf-8", errors="replace")
+            return {"status": resp.status, "body": text, "url": prompt_url, "payload": payload}
+    except error.HTTPError as exc:
+        text = exc.read().decode("utf-8", errors="replace") if exc.fp else str(exc)
+        return {"status": exc.code, "body": text, "url": prompt_url, "payload": payload}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> FileResponse:
     response = FileResponse(STATIC_DIR / "index.html")
@@ -367,6 +409,14 @@ def rename_save_image(payload: JsonTextPayload) -> dict[str, Any]:
     new_data = {node_id: node for node_id, node in data.items() if node_id not in save_nodes}
     new_data["saveFile"] = save_file_node
     return {"json_text": json.dumps(new_data, ensure_ascii=False, indent=2), "count": len(save_nodes)}
+
+
+@app.post("/api/json/post-comfy")
+def post_current_json_to_comfy(payload: ComfyJsonPostPayload) -> dict[str, Any]:
+    data = load_json_text(payload.json_text)
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="顶层 JSON 必须是对象")
+    return post_json_to_comfy(payload.url, data, payload.timeout_seconds)
 
 
 @app.get("/api/units")

@@ -255,6 +255,18 @@ textarea:focus {
   font-size: 17px;
 }
 
+.post-toolbar {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 100px auto;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 12px;
+}
+
+.post-toolbar .field {
+  margin-bottom: 0;
+}
+
 .actions {
   display: flex;
   align-items: center;
@@ -479,6 +491,10 @@ canvas.checker {
 
   .split.two,
   .json-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .post-toolbar {
     grid-template-columns: 1fr;
   }
 

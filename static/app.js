@@ -262,6 +262,30 @@ async function renameSaveImage() {
   toast("SaveImage 处理完成");
 }
 
+async function postJsonToComfy() {
+  const button = $("postJsonComfyBtn");
+  button.disabled = true;
+  button.textContent = "下发中...";
+  const url = $("jsonComfyUrl").value;
+  const timeoutSeconds = Number($("jsonComfyTimeout").value || 12);
+  $("jsonLog").textContent = `正在下发到 ComfyUI...\n目标: ${url}\n超时: ${timeoutSeconds} 秒`;
+  try {
+    const data = await api("/api/json/post-comfy", {
+      url,
+      json_text: $("jsonEditor").value,
+      timeout_seconds: timeoutSeconds,
+    });
+    $("jsonLog").textContent = `POST: ${data.url}\n状态码: ${data.status}\n\n${data.body}`;
+    toast("JSON 已下发到 ComfyUI");
+  } catch (error) {
+    $("jsonLog").textContent = `下发失败\n目标: ${url}\n\n${error.message || String(error)}`;
+    toast("JSON 下发失败", true);
+  } finally {
+    button.disabled = false;
+    button.textContent = "下发到 ComfyUI";
+  }
+}
+
 async function loadImageFile(file) {
   if (!file) return;
   const dataUrl = await fileToDataUrl(file);
@@ -454,6 +478,7 @@ function bindEvents() {
   $("extractPlaceholderRulesBtn").addEventListener("click", () => run(extractPlaceholderRules));
   $("extractSourceRulesBtn").addEventListener("click", () => run(extractSourceRules));
   $("renameSaveBtn").addEventListener("click", () => run(renameSaveImage));
+  $("postJsonComfyBtn").addEventListener("click", () => run(postJsonToComfy));
 
   $("imageInput").addEventListener("change", (event) => run(() => loadImageFile(event.target.files[0])));
   bindFileDropZone("imageDropZone", (files) => {

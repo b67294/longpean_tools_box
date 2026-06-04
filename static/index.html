@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tool Box</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260603-upload-buttons" />
+    <link rel="stylesheet" href="/static/style.css?v=20260604-comfy-post-timeout" />
   </head>
   <body>
     <div class="app-shell">
@@ -119,6 +119,17 @@
                   <button id="renameSaveBtn">SaveImage 改 saveFile</button>
                 </div>
               </div>
+              <div class="post-toolbar">
+                <label class="field">
+                  <span>公司 ComfyUI 地址</span>
+                  <input id="jsonComfyUrl" value="http://117.50.174.91:6070/" />
+                </label>
+                <label class="field timeout-field">
+                  <span>超时秒数</span>
+                  <input id="jsonComfyTimeout" type="number" min="1" max="120" value="12" />
+                </label>
+                <button id="postJsonComfyBtn" class="primary">下发到 ComfyUI</button>
+              </div>
               <textarea id="jsonEditor" class="code huge" spellcheck="false" placeholder="粘贴或从模板库加载 JSON"></textarea>
               <pre id="jsonLog" class="log short"></pre>
             </div>
@@ -192,6 +203,6 @@
         </section>
       </main>
     </div>
-    <script src="/static/app.js?v=20260603-upload-buttons"></script>
+    <script src="/static/app.js?v=20260604-comfy-post-timeout"></script>
   </body>
 </html>
