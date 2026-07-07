@@ -15,6 +15,9 @@ const state = {
     draw: null,
   },
   uploadFiles: [],
+  urlPreview: {
+    statusTimer: null,
+  },
 };
 
 function toast(message, isError = false) {
@@ -583,12 +586,74 @@ async function deleteUnit() {
   toast("模板已删除");
 }
 
+function collectUrlPreviewConfig() {
+  return {
+    max_size: Number($("urlPreviewMaxSize").value || 300),
+    hide_seconds: Number($("urlPreviewHideSeconds").value || 4),
+    allow_content_type_probe: $("urlPreviewProbe").checked,
+  };
+}
+
+function applyUrlPreviewConfig(config = {}) {
+  $("urlPreviewMaxSize").value = config.max_size ?? 300;
+  $("urlPreviewHideSeconds").value = config.hide_seconds ?? 4;
+  $("urlPreviewProbe").checked = config.allow_content_type_probe !== false;
+}
+
+function renderUrlPreviewStatus(status = {}) {
+  const running = Boolean(status.running);
+  const stateText = running ? "运行中" : (status.state === "error" ? "启动失败" : "未开启");
+  $("urlPreviewState").textContent = stateText;
+  $("urlPreviewStatusBadge").textContent = stateText;
+  $("urlPreviewStatusBadge").classList.toggle("running", running);
+  $("urlPreviewStatusBadge").classList.toggle("error", status.state === "error");
+  $("urlPreviewMessage").textContent = status.message || (running ? "URL 图片预览运行中" : "URL 图片预览未开启");
+  $("startUrlPreviewBtn").disabled = running;
+  $("stopUrlPreviewBtn").disabled = !running;
+  if (status.config) {
+    applyUrlPreviewConfig(status.config);
+  }
+}
+
+async function refreshUrlPreviewStatus() {
+  const data = await api("/api/url-preview/status");
+  renderUrlPreviewStatus(data);
+}
+
+async function saveUrlPreviewConfig() {
+  const data = await api("/api/url-preview/config", collectUrlPreviewConfig());
+  renderUrlPreviewStatus(data.status || {});
+  toast("URL 图片预览设置已保存");
+}
+
+async function startUrlPreview() {
+  $("startUrlPreviewBtn").disabled = true;
+  $("urlPreviewState").textContent = "启动中";
+  const data = await api("/api/url-preview/start", collectUrlPreviewConfig());
+  renderUrlPreviewStatus(data.status || {});
+  toast((data.status || {}).running ? "URL 图片预览已开启" : "URL 图片预览启动中");
+}
+
+async function stopUrlPreview() {
+  $("stopUrlPreviewBtn").disabled = true;
+  $("urlPreviewState").textContent = "正在关闭";
+  const data = await api("/api/url-preview/stop", {});
+  renderUrlPreviewStatus(data.status || {});
+  toast("URL 图片预览已关闭");
+}
+
 function bindEvents() {
   document.addEventListener("dragover", (event) => event.preventDefault());
   document.addEventListener("drop", (event) => event.preventDefault());
 
   document.querySelectorAll(".nav-item").forEach((button) => {
-    button.addEventListener("click", () => setView(button.dataset.view));
+    button.addEventListener("click", () => {
+      setView(button.dataset.view);
+      if (button.dataset.view === "url-preview") {
+        $("viewTitle").textContent = "URL 图片预览";
+        run(refreshUrlPreviewStatus);
+      }
+    });
   });
   $("promptFormatBtn").addEventListener("click", () => run(() => formatTextarea("promptJson")));
   $("parsePromptBtn").addEventListener("click", () => run(parsePromptPlaceholders));
@@ -644,6 +709,10 @@ function bindEvents() {
     await navigator.clipboard.writeText($("uploadResult").textContent);
     toast("上传结果已复制");
   });
+  $("startUrlPreviewBtn").addEventListener("click", () => run(startUrlPreview));
+  $("stopUrlPreviewBtn").addEventListener("click", () => run(stopUrlPreview));
+  $("refreshUrlPreviewBtn").addEventListener("click", () => run(refreshUrlPreviewStatus));
+  $("saveUrlPreviewConfigBtn").addEventListener("click", () => run(saveUrlPreviewConfig));
   $("shutdownBtn").addEventListener("click", () => run(shutdownServer));
 }
 
@@ -668,6 +737,8 @@ async function boot() {
     $("healthText").textContent = "连接失败";
   }
   await run(refreshUnits);
+  await run(refreshUrlPreviewStatus);
+  state.urlPreview.statusTimer = setInterval(() => run(refreshUrlPreviewStatus), 4000);
 }
 
 boot();

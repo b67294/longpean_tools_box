@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tool Box</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260604-template-library-meta" />
+    <link rel="stylesheet" href="/static/style.css?v=20260610-url-preview" />
   </head>
   <body>
     <div class="app-shell">
@@ -21,6 +21,7 @@
           <button class="nav-item" data-view="json">JSON 替换</button>
           <button class="nav-item" data-view="image">图片透明化</button>
           <button class="nav-item" data-view="upload">批量上传</button>
+          <button class="nav-item" data-view="url-preview">URL 图片预览</button>
         </nav>
         <div class="server-card">
           <div class="label">服务状态</div>
@@ -207,8 +208,51 @@
             </div>
           </div>
         </section>
+
+        <section id="view-url-preview" class="view">
+          <div class="split two">
+            <div class="panel">
+              <div class="panel-head">
+                <h3>URL 图片预览</h3>
+                <span id="urlPreviewStatusBadge" class="status-badge">未开启</span>
+              </div>
+              <div class="preview-status-card">
+                <div class="label">运行状态</div>
+                <div id="urlPreviewState" class="preview-state">未开启</div>
+                <p id="urlPreviewMessage" class="muted">开启后，拖选图片 URL 会在鼠标附近显示缩略图。</p>
+              </div>
+              <div class="actions">
+                <button id="startUrlPreviewBtn" class="primary">开启预览</button>
+                <button id="stopUrlPreviewBtn">关闭预览</button>
+                <button id="refreshUrlPreviewBtn">刷新状态</button>
+              </div>
+            </div>
+            <div class="panel">
+              <div class="panel-head">
+                <h3>预览设置</h3>
+                <button id="saveUrlPreviewConfigBtn">保存设置</button>
+              </div>
+              <label class="field">
+                <span>最大缩略图尺寸</span>
+                <input id="urlPreviewMaxSize" type="number" min="120" max="600" value="300" />
+              </label>
+              <label class="field">
+                <span>自动隐藏时间（秒）</span>
+                <input id="urlPreviewHideSeconds" type="number" min="1" max="30" step="0.5" value="4" />
+              </label>
+              <label class="check-row">
+                <input id="urlPreviewProbe" type="checkbox" checked />
+                <span>允许检测无后缀图片 URL</span>
+              </label>
+              <div class="section-title">使用方式</div>
+              <div class="help-box">
+                在任意软件里用鼠标拖选图片 URL，松开鼠标后会自动尝试预览。工具会短暂读取剪贴板并恢复原来的文本内容。
+              </div>
+            </div>
+          </div>
+        </section>
       </main>
     </div>
-    <script src="/static/app.js?v=20260604-template-library-meta"></script>
+    <script src="/static/app.js?v=20260610-url-preview"></script>
   </body>
 </html>

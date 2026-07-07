@@ -1,0 +1,5 @@
+{
+  "max_size": 300,
+  "hide_seconds": 4.0,
+  "allow_content_type_probe": true
+}

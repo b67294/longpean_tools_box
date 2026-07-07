@@ -3,6 +3,8 @@ import io
 import json
 import os
 import re
+import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -22,6 +24,11 @@ BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 DATA_DIR = BASE_DIR / "data"
 UNITS_STORE = DATA_DIR / "json_units_store.json"
+URL_PREVIEW_CONFIG = DATA_DIR / "url_preview_config.json"
+URL_PREVIEW_STATUS = DATA_DIR / "url_preview_status.json"
+URL_PREVIEW_PID = DATA_DIR / "url_preview.pid"
+URL_PREVIEW_STOP = DATA_DIR / "url_preview.stop"
+URL_PREVIEW_DAEMON = BASE_DIR / "preview_daemon.py"
 DEFAULT_COMFY_URL = "http://117.50.174.91:6099/prompt"
 DEFAULT_COMPANY_COMFY_URL = "http://117.50.174.91:6070/"
 DEFAULT_UPLOAD_URL = "https://stpic.longpean.com/picture/upLoadQiNiu"
@@ -81,6 +88,12 @@ class UploadPayload(BaseModel):
     fill_hex: str = "#FFFFFF"
     preprocess: bool = False
     images: list[UploadImagePayload]
+
+
+class UrlPreviewConfigPayload(BaseModel):
+    max_size: int = 300
+    hide_seconds: float = 4
+    allow_content_type_probe: bool = True
 
 
 def ensure_data_files() -> None:
@@ -189,6 +202,135 @@ def now_text() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+def default_url_preview_config() -> dict[str, Any]:
+    return {
+        "max_size": 300,
+        "hide_seconds": 4,
+        "allow_content_type_probe": True,
+    }
+
+
+def load_url_preview_config() -> dict[str, Any]:
+    ensure_data_files()
+    config = default_url_preview_config()
+    try:
+        data = json.loads(URL_PREVIEW_CONFIG.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            config.update(data)
+    except Exception:
+        pass
+    config["max_size"] = max(120, min(int(config.get("max_size", 300)), 600))
+    config["hide_seconds"] = max(1, min(float(config.get("hide_seconds", 4)), 30))
+    config["allow_content_type_probe"] = bool(config.get("allow_content_type_probe", True))
+    return config
+
+
+def save_url_preview_config(config: dict[str, Any]) -> dict[str, Any]:
+    ensure_data_files()
+    clean = default_url_preview_config()
+    clean.update(config)
+    clean["max_size"] = max(120, min(int(clean.get("max_size", 300)), 600))
+    clean["hide_seconds"] = max(1, min(float(clean.get("hide_seconds", 4)), 30))
+    clean["allow_content_type_probe"] = bool(clean.get("allow_content_type_probe", True))
+    URL_PREVIEW_CONFIG.write_text(json.dumps(clean, ensure_ascii=False, indent=2), encoding="utf-8")
+    return clean
+
+
+def read_url_preview_pid() -> int | None:
+    try:
+        return int(URL_PREVIEW_PID.read_text(encoding="utf-8").strip())
+    except Exception:
+        return None
+
+
+def is_process_running(pid: int | None) -> bool:
+    if not pid or pid <= 0:
+        return False
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
+    try:
+        result = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            timeout=3,
+        )
+        return str(pid) in result.stdout
+    except Exception:
+        return False
+
+
+def read_url_preview_status() -> dict[str, Any]:
+    pid = read_url_preview_pid()
+    running = is_process_running(pid)
+    status = {
+        "state": "running" if running else "stopped",
+        "message": "URL 图片预览运行中" if running else "URL 图片预览未开启",
+        "pid": pid,
+        "running": running,
+        "config": load_url_preview_config(),
+    }
+    try:
+        data = json.loads(URL_PREVIEW_STATUS.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            status.update(data)
+    except Exception:
+        pass
+    status["running"] = running
+    if not running and status.get("state") == "running":
+        status["state"] = "stopped"
+        status["message"] = "URL 图片预览未开启"
+    return status
+
+
+def stop_url_preview_process(wait_seconds: float = 4) -> dict[str, Any]:
+    pid = read_url_preview_pid()
+    if not is_process_running(pid):
+        try:
+            URL_PREVIEW_PID.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return read_url_preview_status()
+    ensure_data_files()
+    URL_PREVIEW_STOP.write_text("stop", encoding="utf-8")
+    deadline = time.time() + wait_seconds
+    while time.time() < deadline:
+        if not is_process_running(pid):
+            break
+        time.sleep(0.15)
+    if is_process_running(pid) and os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/PID", str(pid), "/T", "/F"],
+            capture_output=True,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            timeout=5,
+        )
+    try:
+        URL_PREVIEW_PID.unlink(missing_ok=True)
+        URL_PREVIEW_STOP.unlink(missing_ok=True)
+    except Exception:
+        pass
+    URL_PREVIEW_STATUS.write_text(
+        json.dumps(
+            {
+                "state": "stopped",
+                "message": "URL 图片预览已关闭",
+                "pid": None,
+                "updated_at": now_text(),
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return read_url_preview_status()
+
+
 def decode_data_url(data_url: str) -> bytes:
     if "," in data_url:
         _, encoded = data_url.split(",", 1)
@@ -280,9 +422,71 @@ def health() -> dict[str, Any]:
     return {"ok": True, "base_dir": str(BASE_DIR)}
 
 
+@app.get("/api/url-preview/status")
+def url_preview_status() -> dict[str, Any]:
+    return read_url_preview_status()
+
+
+@app.post("/api/url-preview/config")
+def url_preview_config(payload: UrlPreviewConfigPayload) -> dict[str, Any]:
+    config = save_url_preview_config(payload.dict())
+    return {"config": config, "status": read_url_preview_status()}
+
+
+@app.post("/api/url-preview/start")
+def start_url_preview(payload: UrlPreviewConfigPayload) -> dict[str, Any]:
+    config = save_url_preview_config(payload.dict())
+    pid = read_url_preview_pid()
+    if is_process_running(pid):
+        return {"config": config, "status": read_url_preview_status()}
+    try:
+        URL_PREVIEW_STOP.unlink(missing_ok=True)
+    except Exception:
+        pass
+    python_exe = Path(r"C:\Users\melonedoe\miniconda3\python.exe")
+    executable = str(python_exe if python_exe.exists() else Path(sys.executable))
+    creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    try:
+        process = subprocess.Popen(
+            [executable, str(URL_PREVIEW_DAEMON)],
+            cwd=BASE_DIR,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=creationflags,
+        )
+        URL_PREVIEW_PID.write_text(str(process.pid), encoding="utf-8")
+        for _ in range(20):
+            status = read_url_preview_status()
+            if status.get("running"):
+                return {"config": config, "status": status}
+            time.sleep(0.1)
+        return {"config": config, "status": read_url_preview_status()}
+    except Exception as exc:
+        URL_PREVIEW_STATUS.write_text(
+            json.dumps(
+                {
+                    "state": "error",
+                    "message": str(exc),
+                    "pid": None,
+                    "updated_at": now_text(),
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        raise HTTPException(status_code=500, detail=f"URL 图片预览启动失败: {exc}") from exc
+
+
+@app.post("/api/url-preview/stop")
+def stop_url_preview() -> dict[str, Any]:
+    return {"status": stop_url_preview_process()}
+
+
 @app.post("/api/shutdown")
 def shutdown() -> dict[str, Any]:
     def stop_server() -> None:
+        stop_url_preview_process(wait_seconds=2)
         time.sleep(0.5)
         os._exit(0)
 
