@@ -24,6 +24,8 @@ BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 DATA_DIR = BASE_DIR / "data"
 UNITS_STORE = DATA_DIR / "json_units_store.json"
+MARKDOWN_DOCS_DIR = DATA_DIR / "markdown_docs"
+MARKDOWN_DOCS_INDEX = DATA_DIR / "markdown_docs_index.json"
 URL_PREVIEW_CONFIG = DATA_DIR / "url_preview_config.json"
 URL_PREVIEW_STATUS = DATA_DIR / "url_preview_status.json"
 URL_PREVIEW_PID = DATA_DIR / "url_preview.pid"
@@ -72,6 +74,14 @@ class UnitPayload(BaseModel):
     updated_at: str = ""
 
 
+class MarkdownDocPayload(BaseModel):
+    id: str = ""
+    title: str
+    content: str = ""
+    created_at: str = ""
+    updated_at: str = ""
+
+
 class ImagePayload(BaseModel):
     file_name: str = "image.png"
     data_url: str
@@ -98,6 +108,7 @@ class UrlPreviewConfigPayload(BaseModel):
 
 def ensure_data_files() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    MARKDOWN_DOCS_DIR.mkdir(parents=True, exist_ok=True)
     if not UNITS_STORE.exists():
         legacy_store = next(
             BASE_DIR.parent.glob("*_tool_box/Comfyui_json_replacer/json_units_store.json"),
@@ -107,6 +118,8 @@ def ensure_data_files() -> None:
             UNITS_STORE.write_text(legacy_store.read_text(encoding="utf-8"), encoding="utf-8")
         else:
             UNITS_STORE.write_text("[]", encoding="utf-8")
+    if not MARKDOWN_DOCS_INDEX.exists():
+        MARKDOWN_DOCS_INDEX.write_text("[]", encoding="utf-8")
 
 
 def load_json_text(json_text: str) -> Any:
@@ -196,6 +209,54 @@ def load_units() -> list[dict[str, str]]:
 def save_units(units: list[dict[str, str]]) -> None:
     ensure_data_files()
     UNITS_STORE.write_text(json.dumps(units, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def load_markdown_docs_index() -> list[dict[str, str]]:
+    ensure_data_files()
+    try:
+        data = json.loads(MARKDOWN_DOCS_INDEX.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    docs = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        doc_id = str(item.get("id", "")).strip()
+        title = str(item.get("title", "")).strip()
+        file_name = str(item.get("file_name", "")).strip()
+        if not doc_id or not title or not file_name:
+            continue
+        docs.append(
+            {
+                "id": doc_id,
+                "title": title,
+                "file_name": file_name,
+                "created_at": str(item.get("created_at", "")),
+                "updated_at": str(item.get("updated_at", "")),
+            }
+        )
+    return sorted(docs, key=lambda item: item["updated_at"] or item["created_at"], reverse=True)
+
+
+def save_markdown_docs_index(docs: list[dict[str, str]]) -> None:
+    ensure_data_files()
+    MARKDOWN_DOCS_INDEX.write_text(json.dumps(docs, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def markdown_doc_path(file_name: str) -> Path:
+    path = (MARKDOWN_DOCS_DIR / file_name).resolve()
+    root = MARKDOWN_DOCS_DIR.resolve()
+    if path.parent != root or path.suffix.lower() != ".md":
+        raise HTTPException(status_code=400, detail="文档路径无效")
+    return path
+
+
+def markdown_doc_summary(doc: dict[str, str]) -> dict[str, str]:
+    path = markdown_doc_path(doc["file_name"])
+    size = path.stat().st_size if path.exists() else 0
+    return {**doc, "size": str(size)}
 
 
 def now_text() -> str:
@@ -661,6 +722,62 @@ def delete_unit(payload: UnitPayload) -> dict[str, Any]:
     units = [unit for unit in load_units() if unit["name"] != name]
     save_units(units)
     return {"units": units}
+
+
+@app.get("/api/markdown-docs")
+def list_markdown_docs() -> dict[str, Any]:
+    docs = [markdown_doc_summary(doc) for doc in load_markdown_docs_index()]
+    return {"docs": docs}
+
+
+@app.get("/api/markdown-docs/{doc_id}")
+def get_markdown_doc(doc_id: str) -> dict[str, Any]:
+    doc = next((item for item in load_markdown_docs_index() if item["id"] == doc_id), None)
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    path = markdown_doc_path(doc["file_name"])
+    content = path.read_text(encoding="utf-8") if path.exists() else ""
+    return {"doc": {**markdown_doc_summary(doc), "content": content}}
+
+
+@app.post("/api/markdown-docs/save")
+def save_markdown_doc(payload: MarkdownDocPayload) -> dict[str, Any]:
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="文档名称不能为空")
+    docs = load_markdown_docs_index()
+    existing = next((item for item in docs if item["id"] == payload.id.strip()), None)
+    timestamp = now_text()
+    doc_id = existing["id"] if existing else uuid.uuid4().hex
+    file_name = existing["file_name"] if existing else f"{doc_id}.md"
+    path = markdown_doc_path(file_name)
+    path.write_text(payload.content, encoding="utf-8")
+    doc_data = {
+        "id": doc_id,
+        "title": title,
+        "file_name": file_name,
+        "created_at": (existing or {}).get("created_at") or payload.created_at or timestamp,
+        "updated_at": timestamp,
+    }
+    docs = [item for item in docs if item["id"] != doc_id]
+    docs.append(doc_data)
+    save_markdown_docs_index(docs)
+    return {"docs": [markdown_doc_summary(doc) for doc in load_markdown_docs_index()], "doc": {**markdown_doc_summary(doc_data), "content": payload.content}}
+
+
+@app.post("/api/markdown-docs/delete")
+def delete_markdown_doc(payload: MarkdownDocPayload) -> dict[str, Any]:
+    doc_id = payload.id.strip()
+    docs = load_markdown_docs_index()
+    existing = next((item for item in docs if item["id"] == doc_id), None)
+    if existing:
+        try:
+            markdown_doc_path(existing["file_name"]).unlink(missing_ok=True)
+        except Exception:
+            pass
+    docs = [item for item in docs if item["id"] != doc_id]
+    save_markdown_docs_index(docs)
+    return {"docs": [markdown_doc_summary(doc) for doc in load_markdown_docs_index()]}
 
 
 @app.post("/api/image/white-transparent")

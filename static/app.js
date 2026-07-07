@@ -5,6 +5,10 @@ const state = {
   units: [],
   selectedUnit: null,
   unitSearch: "",
+  docs: [],
+  selectedDocId: null,
+  docSearch: "",
+  docMode: "edit",
   image: {
     fileName: "",
     sourceDataUrl: "",
@@ -57,6 +61,15 @@ function fileToDataUrl(file) {
   });
 }
 
+function fileToText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(file, "utf-8");
+  });
+}
+
 function downloadDataUrl(dataUrl, fileName) {
   const a = document.createElement("a");
   a.href = dataUrl;
@@ -68,6 +81,43 @@ function downloadDataUrl(dataUrl, fileName) {
 
 function imageFilesFrom(fileList) {
   return Array.from(fileList || []).filter((file) => file.type.startsWith("image/"));
+}
+
+function textFilesFrom(fileList) {
+  return Array.from(fileList || []).filter((file) => {
+    const name = file.name.toLowerCase();
+    return name.endsWith(".md") || name.endsWith(".txt") || file.type.startsWith("text/");
+  });
+}
+
+function bindTextFileDropZone(zoneId, onFiles) {
+  const zone = $(zoneId);
+  if (!zone) return;
+
+  ["dragenter", "dragover"].forEach((eventName) => {
+    zone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      zone.classList.add("drag-over");
+    });
+  });
+
+  ["dragleave", "drop"].forEach((eventName) => {
+    zone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      zone.classList.remove("drag-over");
+    });
+  });
+
+  zone.addEventListener("drop", (event) => {
+    const files = textFilesFrom(event.dataTransfer.files);
+    if (!files.length) {
+      toast("请拖入 md 或 txt 文件", true);
+      return;
+    }
+    onFiles(files);
+  });
 }
 
 function bindFileDropZone(zoneId, onFiles) {
@@ -112,6 +162,8 @@ function setView(viewName) {
     json: "JSON 替换",
     image: "图片透明化",
     upload: "批量上传",
+    markdown: "Markdown 文档",
+    "url-preview": "URL 图片预览",
   };
   $("viewTitle").textContent = titles[viewName] || "Tool Box";
   if (viewName === "image") {
@@ -586,6 +638,293 @@ async function deleteUnit() {
   toast("模板已删除");
 }
 
+function formatDocTime(value) {
+  return value || "未记录";
+}
+
+function updateDocMeta(doc = null) {
+  const node = $("docMeta");
+  if (!node) return;
+  node.innerHTML = `创建：${formatDocTime(doc?.created_at)}<br />修改：${formatDocTime(doc?.updated_at)}`;
+}
+
+function getFilteredDocs() {
+  const keyword = state.docSearch.trim().toLowerCase();
+  if (!keyword) return state.docs;
+  return state.docs.filter((doc) => {
+    const text = `${doc.title || ""} ${doc.content || ""}`.toLowerCase();
+    return text.includes(keyword);
+  });
+}
+
+function renderDocs() {
+  const list = $("docList");
+  list.innerHTML = "";
+  if (!state.docs.length) {
+    list.textContent = "暂无文档";
+    list.classList.add("empty");
+    return;
+  }
+  const docs = getFilteredDocs();
+  if (!docs.length) {
+    list.textContent = "没有匹配的文档";
+    list.classList.add("empty");
+    return;
+  }
+  list.classList.remove("empty");
+  docs.forEach((doc) => {
+    const button = document.createElement("button");
+    button.className = `unit-item${state.selectedDocId === doc.id ? " active" : ""}`;
+    const name = document.createElement("span");
+    name.className = "unit-item-name";
+    name.textContent = doc.title;
+    const meta = document.createElement("span");
+    meta.className = "unit-item-meta";
+    const size = Number(doc.size || 0);
+    meta.textContent = `修改 ${formatDocTime(doc.updated_at)} · ${(size / 1024).toFixed(1)} KB`;
+    button.append(name, meta);
+    button.addEventListener("click", () => run(() => loadDoc(doc.id)));
+    list.appendChild(button);
+  });
+}
+
+async function refreshDocs() {
+  const data = await api("/api/markdown-docs");
+  state.docs = data.docs || [];
+  renderDocs();
+}
+
+function newDoc() {
+  state.selectedDocId = null;
+  $("docTitle").value = "";
+  $("docEditor").value = "";
+  updateDocMeta();
+  renderMarkdownPreview();
+  renderDocs();
+  $("docTitle").focus();
+}
+
+async function loadDoc(docId) {
+  const data = await api(`/api/markdown-docs/${encodeURIComponent(docId)}`);
+  const doc = data.doc || {};
+  state.selectedDocId = doc.id || null;
+  const existingIndex = state.docs.findIndex((item) => item.id === doc.id);
+  if (existingIndex >= 0) {
+    state.docs[existingIndex] = { ...state.docs[existingIndex], ...doc };
+  }
+  $("docTitle").value = doc.title || "";
+  $("docEditor").value = doc.content || "";
+  updateDocMeta(doc);
+  renderMarkdownPreview();
+  renderDocs();
+}
+
+async function saveDoc() {
+  const data = await api("/api/markdown-docs/save", {
+    id: state.selectedDocId || "",
+    title: $("docTitle").value,
+    content: $("docEditor").value,
+  });
+  state.docs = data.docs || [];
+  const doc = data.doc || {};
+  state.selectedDocId = doc.id || null;
+  updateDocMeta(doc);
+  renderDocs();
+  toast("文档已保存");
+}
+
+async function deleteDoc() {
+  if (!state.selectedDocId) {
+    toast("先选择一个文档", true);
+    return;
+  }
+  const confirmed = window.confirm(`确定删除《${$("docTitle").value.trim()}》吗？`);
+  if (!confirmed) return;
+  const data = await api("/api/markdown-docs/delete", {
+    id: state.selectedDocId,
+    title: $("docTitle").value || "delete",
+    content: "",
+  });
+  state.docs = data.docs || [];
+  newDoc();
+  toast("文档已删除");
+}
+
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function renderInlineMarkdown(text) {
+  let html = escapeHtml(text);
+  html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+  html = html.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  html = html.replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<img alt="$1" src="$2" />');
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+  return html;
+}
+
+function renderMarkdown(markdownText) {
+  const lines = String(markdownText || "").replace(/\r\n/g, "\n").split("\n");
+  const blocks = [];
+  let paragraph = [];
+  let list = null;
+  let table = [];
+  let inCode = false;
+  let codeLines = [];
+
+  const flushParagraph = () => {
+    if (paragraph.length) {
+      blocks.push(`<p>${renderInlineMarkdown(paragraph.join(" "))}</p>`);
+      paragraph = [];
+    }
+  };
+  const flushList = () => {
+    if (list) {
+      blocks.push(`<${list.type}>${list.items.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</${list.type}>`);
+      list = null;
+    }
+  };
+  const flushTable = () => {
+    if (table.length < 2) {
+      table.forEach((line) => paragraph.push(line));
+      table = [];
+      return;
+    }
+    const rows = table.map((line) => line.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim()));
+    const divider = rows[1].every((cell) => /^:?-{3,}:?$/.test(cell));
+    if (!divider) {
+      table.forEach((line) => paragraph.push(line));
+      table = [];
+      return;
+    }
+    const header = rows[0].map((cell) => `<th>${renderInlineMarkdown(cell)}</th>`).join("");
+    const body = rows.slice(2).map((row) => `<tr>${row.map((cell) => `<td>${renderInlineMarkdown(cell)}</td>`).join("")}</tr>`).join("");
+    blocks.push(`<table><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table>`);
+    table = [];
+  };
+  const flushAll = () => {
+    flushTable();
+    flushParagraph();
+    flushList();
+  };
+
+  lines.forEach((line) => {
+    if (line.trim().startsWith("```")) {
+      if (inCode) {
+        blocks.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+        codeLines = [];
+        inCode = false;
+      } else {
+        flushAll();
+        inCode = true;
+      }
+      return;
+    }
+    if (inCode) {
+      codeLines.push(line);
+      return;
+    }
+    if (!line.trim()) {
+      flushAll();
+      return;
+    }
+    if (line.includes("|") && /^\s*\|?.+\|.+\|?\s*$/.test(line)) {
+      flushParagraph();
+      flushList();
+      table.push(line);
+      return;
+    }
+    flushTable();
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const level = heading[1].length;
+      blocks.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+      return;
+    }
+    const quote = /^>\s?(.*)$/.exec(line);
+    if (quote) {
+      flushParagraph();
+      flushList();
+      blocks.push(`<blockquote>${renderInlineMarkdown(quote[1])}</blockquote>`);
+      return;
+    }
+    const unordered = /^\s*[-*]\s+(.+)$/.exec(line);
+    const ordered = /^\s*\d+\.\s+(.+)$/.exec(line);
+    if (unordered || ordered) {
+      flushParagraph();
+      const type = unordered ? "ul" : "ol";
+      if (!list || list.type !== type) flushList();
+      if (!list) list = { type, items: [] };
+      list.items.push((unordered || ordered)[1]);
+      return;
+    }
+    paragraph.push(line.trim());
+  });
+
+  if (inCode) {
+    blocks.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+  }
+  flushAll();
+  return blocks.join("\n") || '<p class="empty">预览会显示在这里</p>';
+}
+
+function renderMarkdownPreview() {
+  $("docPreview").innerHTML = renderMarkdown($("docEditor").value);
+}
+
+function setDocMode(mode) {
+  state.docMode = mode === "preview" ? "preview" : "edit";
+  if (state.docMode === "preview") {
+    renderMarkdownPreview();
+  }
+  $("docEditor").classList.toggle("hidden", state.docMode !== "edit");
+  $("docPreview").classList.toggle("hidden", state.docMode !== "preview");
+  $("docEditModeBtn").classList.toggle("active", state.docMode === "edit");
+  $("docPreviewModeBtn").classList.toggle("active", state.docMode === "preview");
+}
+
+function safeDocFileName(title) {
+  const name = (title || "document").trim().replace(/[\\/:*?"<>|]+/g, "_");
+  return `${name || "document"}.md`;
+}
+
+function downloadDoc() {
+  const blob = new Blob([$("docEditor").value], { type: "text/markdown;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = safeDocFileName($("docTitle").value);
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function importDocFiles(files) {
+  let lastDoc = null;
+  for (const file of files) {
+    const content = await fileToText(file);
+    const title = file.name.replace(/\.(md|txt)$/i, "");
+    const data = await api("/api/markdown-docs/save", { id: "", title, content });
+    state.docs = data.docs || [];
+    lastDoc = data.doc || null;
+  }
+  if (lastDoc?.id) {
+    await loadDoc(lastDoc.id);
+  } else {
+    renderDocs();
+  }
+  toast(`已导入 ${files.length} 个文档`);
+}
+
 function collectUrlPreviewConfig() {
   return {
     max_size: Number($("urlPreviewMaxSize").value || 300),
@@ -709,6 +1048,29 @@ function bindEvents() {
     await navigator.clipboard.writeText($("uploadResult").textContent);
     toast("上传结果已复制");
   });
+  $("refreshDocsBtn").addEventListener("click", () => run(refreshDocs));
+  $("newDocBtn").addEventListener("click", newDoc);
+  $("saveDocBtn").addEventListener("click", () => run(saveDoc));
+  $("deleteDocBtn").addEventListener("click", () => run(deleteDoc));
+  $("docSearch").addEventListener("input", (event) => {
+    state.docSearch = event.target.value;
+    renderDocs();
+  });
+  $("docEditor").addEventListener("input", renderMarkdownPreview);
+  $("docEditModeBtn").addEventListener("click", () => setDocMode("edit"));
+  $("docPreviewModeBtn").addEventListener("click", () => setDocMode("preview"));
+  $("copyDocBtn").addEventListener("click", async () => {
+    await navigator.clipboard.writeText($("docEditor").value);
+    toast("文档全文已复制");
+  });
+  $("downloadDocBtn").addEventListener("click", downloadDoc);
+  $("docImportInput").addEventListener("change", (event) => {
+    const files = textFilesFrom(event.target.files);
+    if (!files.length) return toast("请选择 md 或 txt 文件", true);
+    run(() => importDocFiles(files));
+    event.target.value = "";
+  });
+  bindTextFileDropZone("docImportDropZone", (files) => run(() => importDocFiles(files)));
   $("startUrlPreviewBtn").addEventListener("click", () => run(startUrlPreview));
   $("stopUrlPreviewBtn").addEventListener("click", () => run(stopUrlPreview));
   $("refreshUrlPreviewBtn").addEventListener("click", () => run(refreshUrlPreviewStatus));
@@ -728,6 +1090,9 @@ async function boot() {
   bindEvents();
   bindUnitPanelResize();
   updateUnitMeta();
+  updateDocMeta();
+  renderMarkdownPreview();
+  setDocMode("edit");
   renderUploadFiles();
   renderImageCanvas();
   try {
@@ -737,6 +1102,7 @@ async function boot() {
     $("healthText").textContent = "连接失败";
   }
   await run(refreshUnits);
+  await run(refreshDocs);
   await run(refreshUrlPreviewStatus);
   state.urlPreview.statusTimer = setInterval(() => run(refreshUrlPreviewStatus), 4000);
 }

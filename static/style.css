@@ -397,6 +397,125 @@ textarea:focus {
   align-items: stretch;
 }
 
+.markdown-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) minmax(520px, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.md-list-panel,
+.md-main-panel {
+  min-height: calc(100vh - 148px);
+}
+
+.drop-zone.compact {
+  min-height: 86px;
+}
+
+.markdown-single-pane {
+  min-height: calc(100vh - 230px);
+}
+
+.markdown-editor {
+  min-height: calc(100vh - 230px);
+}
+
+.markdown-preview {
+  min-height: calc(100vh - 230px);
+  max-height: calc(100vh - 230px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 18px;
+  line-height: 1.7;
+}
+
+.panel-head .actions button.active {
+  background: #e8f7f4;
+  border-color: var(--brand);
+  color: #0b625b;
+  font-weight: 700;
+}
+
+.markdown-preview h1,
+.markdown-preview h2,
+.markdown-preview h3,
+.markdown-preview h4,
+.markdown-preview h5,
+.markdown-preview h6 {
+  margin: 1.1em 0 0.45em;
+  line-height: 1.25;
+}
+
+.markdown-preview h1:first-child,
+.markdown-preview h2:first-child,
+.markdown-preview h3:first-child {
+  margin-top: 0;
+}
+
+.markdown-preview p {
+  margin: 0 0 0.9em;
+}
+
+.markdown-preview a {
+  color: var(--brand-2);
+}
+
+.markdown-preview code {
+  padding: 2px 5px;
+  border-radius: 5px;
+  background: #eef3f8;
+  color: #0f3f6e;
+  font-family: Consolas, "Cascadia Mono", monospace;
+}
+
+.markdown-preview pre {
+  overflow: auto;
+  padding: 12px;
+  border-radius: 8px;
+  background: #101820;
+  color: #d6e2ef;
+}
+
+.markdown-preview pre code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.markdown-preview blockquote {
+  margin: 0 0 1em;
+  padding: 8px 12px;
+  border-left: 4px solid var(--brand);
+  background: #f4faf9;
+  color: #445466;
+}
+
+.markdown-preview table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 1em;
+}
+
+.markdown-preview th,
+.markdown-preview td {
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-preview th {
+  background: #f3f7fb;
+}
+
+.markdown-preview img {
+  max-width: 100%;
+  border-radius: 8px;
+}
+
 .unit-resize-handle {
   position: relative;
   min-height: 100%;
@@ -588,11 +707,12 @@ canvas.checker {
   }
 
   .nav {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 
   .split.two,
-  .json-layout {
+  .json-layout,
+  .markdown-layout {
     grid-template-columns: 1fr;
   }
 

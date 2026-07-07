@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tool Box</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260610-url-preview" />
+    <link rel="stylesheet" href="/static/style.css?v=20260707-markdown-single" />
   </head>
   <body>
     <div class="app-shell">
@@ -21,6 +21,7 @@
           <button class="nav-item" data-view="json">JSON 替换</button>
           <button class="nav-item" data-view="image">图片透明化</button>
           <button class="nav-item" data-view="upload">批量上传</button>
+          <button class="nav-item" data-view="markdown">Markdown 文档</button>
           <button class="nav-item" data-view="url-preview">URL 图片预览</button>
         </nav>
         <div class="server-card">
@@ -209,6 +210,51 @@
           </div>
         </section>
 
+        <section id="view-markdown" class="view">
+          <div class="markdown-layout">
+            <div class="panel md-list-panel">
+              <div class="panel-head">
+                <h3>文档库</h3>
+                <button id="refreshDocsBtn">刷新</button>
+              </div>
+              <label class="field">
+                <span>文档名称</span>
+                <input id="docTitle" placeholder="输入名称后保存" />
+              </label>
+              <div class="actions stretch">
+                <button id="newDocBtn">新建</button>
+                <button id="saveDocBtn" class="primary">保存</button>
+                <button id="deleteDocBtn">删除</button>
+              </div>
+              <label id="docImportDropZone" class="drop-zone compact">
+                <input id="docImportInput" type="file" accept=".md,.txt,text/markdown,text/plain" multiple />
+                <span>导入 .md 或 .txt</span>
+              </label>
+              <label class="field">
+                <span>搜索文档</span>
+                <input id="docSearch" placeholder="按名称或内容过滤" />
+              </label>
+              <div id="docMeta" class="unit-meta">创建：未记录<br />修改：未记录</div>
+              <div id="docList" class="unit-list"></div>
+            </div>
+            <div class="panel md-main-panel">
+              <div class="panel-head">
+                <h3>Markdown 文档</h3>
+                <div class="actions">
+                  <button id="docEditModeBtn" class="active">编辑</button>
+                  <button id="docPreviewModeBtn">预览</button>
+                  <button id="copyDocBtn">复制全文</button>
+                  <button id="downloadDocBtn">下载 .md</button>
+                </div>
+              </div>
+              <div class="markdown-single-pane">
+                <textarea id="docEditor" class="code markdown-editor" spellcheck="false" placeholder="把账号信息、脚本、备忘、链接都放到这里。切到预览可查看 Markdown 渲染。"></textarea>
+                <article id="docPreview" class="markdown-preview hidden"></article>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section id="view-url-preview" class="view">
           <div class="split two">
             <div class="panel">
@@ -253,6 +299,6 @@
         </section>
       </main>
     </div>
-    <script src="/static/app.js?v=20260610-url-preview"></script>
+    <script src="/static/app.js?v=20260707-markdown-single"></script>
   </body>
 </html>
