@@ -24,8 +24,11 @@ BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 DATA_DIR = BASE_DIR / "data"
 UNITS_STORE = DATA_DIR / "json_units_store.json"
+UNIT_FOLDERS_STORE = DATA_DIR / "json_unit_folders.json"
 MARKDOWN_DOCS_DIR = DATA_DIR / "markdown_docs"
 MARKDOWN_DOCS_INDEX = DATA_DIR / "markdown_docs_index.json"
+ASSET_LIBRARY_STORE = DATA_DIR / "asset_library.json"
+ASSET_FILES_DIR = DATA_DIR / "asset_files"
 URL_PREVIEW_CONFIG = DATA_DIR / "url_preview_config.json"
 URL_PREVIEW_STATUS = DATA_DIR / "url_preview_status.json"
 URL_PREVIEW_PID = DATA_DIR / "url_preview.pid"
@@ -38,8 +41,10 @@ PLACEHOLDER_PATTERN = re.compile(r"#\{([^{}]+)\}")
 RULE_PLACEHOLDER_PATTERN = re.compile(r"#\{[^{}]+\}")
 COMFY_CLIENT_ID = str(uuid.uuid4())
 
+ASSET_FILES_DIR.mkdir(parents=True, exist_ok=True)
 app = FastAPI(title="Tool Box Web")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+app.mount("/asset-files", StaticFiles(directory=ASSET_FILES_DIR), name="asset-files")
 
 
 class JsonTextPayload(BaseModel):
@@ -66,6 +71,7 @@ class ComfyJsonPostPayload(BaseModel):
 
 class UnitPayload(BaseModel):
     name: str
+    folder_id: str = ""
     json_text: str = ""
     source_rules_text: str = ""
     placeholder_rules_text: str = ""
@@ -74,12 +80,48 @@ class UnitPayload(BaseModel):
     updated_at: str = ""
 
 
+class UnitFolderPayload(BaseModel):
+    id: str = ""
+    name: str
+    parent_id: str = ""
+
+
+class UnitMovePayload(BaseModel):
+    name: str
+    folder_id: str = ""
+
+
 class MarkdownDocPayload(BaseModel):
     id: str = ""
     title: str
     content: str = ""
     created_at: str = ""
     updated_at: str = ""
+
+
+class AssetCategoryPayload(BaseModel):
+    id: str = ""
+    name: str
+    parent_id: str = ""
+
+
+class AssetItemPayload(BaseModel):
+    id: str = ""
+    category_id: str
+    name: str
+    url: str = ""
+    preview_url: str = ""
+    data_url: str = ""
+
+
+class AssetBatchPayload(BaseModel):
+    category_id: str
+    assets: list[AssetItemPayload]
+
+
+class AssetMovePayload(BaseModel):
+    category_id: str
+    asset_ids: list[str]
 
 
 class ImagePayload(BaseModel):
@@ -109,6 +151,7 @@ class UrlPreviewConfigPayload(BaseModel):
 def ensure_data_files() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     MARKDOWN_DOCS_DIR.mkdir(parents=True, exist_ok=True)
+    ASSET_FILES_DIR.mkdir(parents=True, exist_ok=True)
     if not UNITS_STORE.exists():
         legacy_store = next(
             BASE_DIR.parent.glob("*_tool_box/Comfyui_json_replacer/json_units_store.json"),
@@ -118,8 +161,15 @@ def ensure_data_files() -> None:
             UNITS_STORE.write_text(legacy_store.read_text(encoding="utf-8"), encoding="utf-8")
         else:
             UNITS_STORE.write_text("[]", encoding="utf-8")
+    if not UNIT_FOLDERS_STORE.exists():
+        UNIT_FOLDERS_STORE.write_text("[]", encoding="utf-8")
     if not MARKDOWN_DOCS_INDEX.exists():
         MARKDOWN_DOCS_INDEX.write_text("[]", encoding="utf-8")
+    if not ASSET_LIBRARY_STORE.exists():
+        ASSET_LIBRARY_STORE.write_text(
+            json.dumps({"categories": [], "assets": []}, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
 
 def load_json_text(json_text: str) -> Any:
@@ -195,6 +245,7 @@ def load_units() -> list[dict[str, str]]:
         units.append(
             {
                 "name": name,
+                "folder_id": str(item.get("folder_id", "")),
                 "json_text": str(item.get("json_text", "")),
                 "source_rules_text": str(item.get("source_rules_text", "")),
                 "placeholder_rules_text": str(item.get("placeholder_rules_text", "")),
@@ -209,6 +260,71 @@ def load_units() -> list[dict[str, str]]:
 def save_units(units: list[dict[str, str]]) -> None:
     ensure_data_files()
     UNITS_STORE.write_text(json.dumps(units, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def load_unit_folders() -> list[dict[str, str]]:
+    ensure_data_files()
+    try:
+        data = json.loads(UNIT_FOLDERS_STORE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    folders = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        folder_id = str(item.get("id", "")).strip()
+        name = str(item.get("name", "")).strip()
+        if not folder_id or not name:
+            continue
+        folders.append(
+            {
+                "id": folder_id,
+                "name": name,
+                "parent_id": str(item.get("parent_id", "")).strip(),
+                "created_at": str(item.get("created_at", "")),
+                "updated_at": str(item.get("updated_at", "")),
+            }
+        )
+    valid_ids = {folder["id"] for folder in folders}
+    for folder in folders:
+        if folder["parent_id"] not in valid_ids:
+            folder["parent_id"] = ""
+    return sorted(folders, key=lambda item: item["name"].lower())
+
+
+def save_unit_folders(folders: list[dict[str, str]]) -> None:
+    ensure_data_files()
+    UNIT_FOLDERS_STORE.write_text(json.dumps(folders, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def unit_library_payload() -> dict[str, Any]:
+    folders = load_unit_folders()
+    units = load_units()
+    valid_folder_ids = {folder["id"] for folder in folders}
+    unit_counts: dict[str, int] = {}
+    child_counts: dict[str, int] = {}
+    for unit in units:
+        if unit.get("folder_id", "") not in valid_folder_ids:
+            unit["folder_id"] = ""
+        folder_id = unit.get("folder_id", "")
+        unit_counts[folder_id] = unit_counts.get(folder_id, 0) + 1
+    for folder in folders:
+        parent_id = folder.get("parent_id", "")
+        if parent_id:
+            child_counts[parent_id] = child_counts.get(parent_id, 0) + 1
+    return {
+        "units": units,
+        "folders": [
+            {
+                **folder,
+                "unit_count": str(unit_counts.get(folder["id"], 0)),
+                "child_count": str(child_counts.get(folder["id"], 0)),
+            }
+            for folder in folders
+        ],
+    }
 
 
 def load_markdown_docs_index() -> list[dict[str, str]]:
@@ -257,6 +373,93 @@ def markdown_doc_summary(doc: dict[str, str]) -> dict[str, str]:
     path = markdown_doc_path(doc["file_name"])
     size = path.stat().st_size if path.exists() else 0
     return {**doc, "size": str(size)}
+
+
+def default_asset_library() -> dict[str, list[dict[str, str]]]:
+    return {"categories": [], "assets": []}
+
+
+def load_asset_library() -> dict[str, list[dict[str, str]]]:
+    ensure_data_files()
+    try:
+        data = json.loads(ASSET_LIBRARY_STORE.read_text(encoding="utf-8"))
+    except Exception:
+        return default_asset_library()
+    if not isinstance(data, dict):
+        return default_asset_library()
+    categories = []
+    assets = []
+    for item in data.get("categories", []):
+        if not isinstance(item, dict):
+            continue
+        category_id = str(item.get("id", "")).strip()
+        name = str(item.get("name", "")).strip()
+        if not category_id or not name:
+            continue
+        categories.append(
+            {
+                "id": category_id,
+                "name": name,
+                "parent_id": str(item.get("parent_id", "")).strip(),
+                "created_at": str(item.get("created_at", "")),
+                "updated_at": str(item.get("updated_at", "")),
+            }
+        )
+    known_categories = {item["id"] for item in categories}
+    for item in categories:
+        if item["parent_id"] not in known_categories:
+            item["parent_id"] = ""
+    for item in data.get("assets", []):
+        if not isinstance(item, dict):
+            continue
+        asset_id = str(item.get("id", "")).strip()
+        category_id = str(item.get("category_id", "")).strip()
+        name = str(item.get("name", "")).strip()
+        url = str(item.get("url", "")).strip()
+        preview_url = str(item.get("preview_url", "")).strip() or url
+        if not asset_id or category_id not in known_categories or not name or not preview_url:
+            continue
+        assets.append(
+            {
+                "id": asset_id,
+                "category_id": category_id,
+                "name": name,
+                "url": url,
+                "preview_url": preview_url,
+                "created_at": str(item.get("created_at", "")),
+                "updated_at": str(item.get("updated_at", "")),
+            }
+        )
+    return {
+        "categories": sorted(categories, key=lambda item: item["name"].lower()),
+        "assets": sorted(assets, key=lambda item: item["updated_at"] or item["created_at"], reverse=True),
+    }
+
+
+def save_asset_library(library: dict[str, list[dict[str, str]]]) -> None:
+    ensure_data_files()
+    ASSET_LIBRARY_STORE.write_text(json.dumps(library, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def asset_library_with_counts() -> dict[str, list[dict[str, str]]]:
+    library = load_asset_library()
+    counts: dict[str, int] = {}
+    child_counts: dict[str, int] = {}
+    for asset in library["assets"]:
+        counts[asset["category_id"]] = counts.get(asset["category_id"], 0) + 1
+    for category in library["categories"]:
+        parent_id = category.get("parent_id", "")
+        if parent_id:
+            child_counts[parent_id] = child_counts.get(parent_id, 0) + 1
+    categories = [
+        {
+            **item,
+            "count": str(counts.get(item["id"], 0)),
+            "child_count": str(child_counts.get(item["id"], 0)),
+        }
+        for item in library["categories"]
+    ]
+    return {"categories": categories, "assets": library["assets"]}
 
 
 def now_text() -> str:
@@ -408,6 +611,50 @@ def image_to_data_url(image: Image.Image, fmt: str = "PNG") -> str:
     image.save(output, format=fmt)
     encoded = base64.b64encode(output.getvalue()).decode("ascii")
     return f"data:image/png;base64,{encoded}"
+
+
+def asset_file_url(file_name: str) -> str:
+    return f"/asset-files/{file_name}"
+
+
+def clean_asset_suffix(value: str, default: str = ".png") -> str:
+    suffix = Path(value.split("?", 1)[0]).suffix.lower()
+    if suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}:
+        return suffix
+    return default
+
+
+def save_asset_bytes(image_bytes: bytes, suffix: str = ".png") -> str:
+    ensure_data_files()
+    file_name = f"{uuid.uuid4().hex}{suffix}"
+    (ASSET_FILES_DIR / file_name).write_bytes(image_bytes)
+    return asset_file_url(file_name)
+
+
+def download_asset_preview(url: str) -> str:
+    req = request.Request(url=url, headers={"User-Agent": "ToolBoxAssetLibrary/1.0"})
+    try:
+        with request.urlopen(req, timeout=30) as resp:
+            content_type = resp.headers.get("Content-Type", "")
+            if not content_type.lower().startswith("image/"):
+                raise HTTPException(status_code=400, detail="URL 返回的不是图片")
+            image_bytes = resp.read()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"下载图片失败: {exc}") from exc
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="下载到的图片为空")
+    return save_asset_bytes(image_bytes, clean_asset_suffix(url))
+
+
+def save_asset_data_url(data_url: str, file_name: str = "") -> str:
+    image_bytes = decode_data_url(data_url)
+    try:
+        Image.open(io.BytesIO(image_bytes)).verify()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"图片数据无效: {exc}") from exc
+    return save_asset_bytes(image_bytes, clean_asset_suffix(file_name))
 
 
 def parse_hex_color(hex_color: str) -> tuple[int, int, int]:
@@ -695,7 +942,7 @@ def post_current_json_to_comfy(payload: ComfyJsonPostPayload) -> dict[str, Any]:
 
 @app.get("/api/units")
 def list_units() -> dict[str, Any]:
-    return {"units": load_units()}
+    return unit_library_payload()
 
 
 @app.post("/api/units/save")
@@ -708,12 +955,15 @@ def save_unit(payload: UnitPayload) -> dict[str, Any]:
     timestamp = now_text()
     unit_data = payload.dict()
     unit_data["name"] = name
+    valid_folder_ids = {folder["id"] for folder in load_unit_folders()}
+    if unit_data.get("folder_id", "") not in valid_folder_ids:
+        unit_data["folder_id"] = ""
     unit_data["created_at"] = (existing or {}).get("created_at") or payload.created_at or timestamp
     unit_data["updated_at"] = timestamp
     units = [unit for unit in existing_units if unit["name"] != name]
     units.append(unit_data)
     save_units(sorted(units, key=lambda item: item["name"].lower()))
-    return {"units": load_units()}
+    return unit_library_payload()
 
 
 @app.post("/api/units/delete")
@@ -721,7 +971,82 @@ def delete_unit(payload: UnitPayload) -> dict[str, Any]:
     name = payload.name.strip()
     units = [unit for unit in load_units() if unit["name"] != name]
     save_units(units)
-    return {"units": units}
+    return unit_library_payload()
+
+
+@app.post("/api/units/move")
+def move_unit(payload: UnitMovePayload) -> dict[str, Any]:
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="请先选择要移动的模板")
+    folder_id = payload.folder_id.strip()
+    folders = load_unit_folders()
+    valid_folder_ids = {folder["id"] for folder in folders}
+    if folder_id and folder_id not in valid_folder_ids:
+        raise HTTPException(status_code=400, detail="目标文件夹不存在")
+    units = load_units()
+    moved = False
+    timestamp = now_text()
+    for unit in units:
+        if unit["name"] == name:
+            unit["folder_id"] = folder_id
+            unit["updated_at"] = timestamp
+            moved = True
+            break
+    if not moved:
+        raise HTTPException(status_code=404, detail="模板不存在")
+    save_units(units)
+    return unit_library_payload()
+
+
+@app.post("/api/unit-folders/save")
+def save_unit_folder(payload: UnitFolderPayload) -> dict[str, Any]:
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="文件夹名称不能为空")
+    folders = load_unit_folders()
+    existing = next((item for item in folders if item["id"] == payload.id.strip()), None)
+    parent_id = payload.parent_id.strip()
+    valid_ids = {folder["id"] for folder in folders}
+    if parent_id not in valid_ids or (existing and parent_id == existing["id"]):
+        parent_id = ""
+    timestamp = now_text()
+    folder_id = existing["id"] if existing else uuid.uuid4().hex
+    folder = {
+        "id": folder_id,
+        "name": name,
+        "parent_id": parent_id,
+        "created_at": (existing or {}).get("created_at") or timestamp,
+        "updated_at": timestamp,
+    }
+    folders = [item for item in folders if item["id"] != folder_id]
+    folders.append(folder)
+    save_unit_folders(folders)
+    return unit_library_payload()
+
+
+@app.post("/api/unit-folders/delete")
+def delete_unit_folder(payload: UnitFolderPayload) -> dict[str, Any]:
+    folder_id = payload.id.strip()
+    folders = load_unit_folders()
+    existing = next((item for item in folders if item["id"] == folder_id), None)
+    parent_id = (existing or {}).get("parent_id", "")
+    delete_ids = {folder_id}
+    changed = True
+    while changed:
+        changed = False
+        for folder in folders:
+            if folder.get("parent_id", "") in delete_ids and folder["id"] not in delete_ids:
+                delete_ids.add(folder["id"])
+                changed = True
+    folders = [folder for folder in folders if folder["id"] not in delete_ids]
+    units = load_units()
+    for unit in units:
+        if unit.get("folder_id", "") in delete_ids:
+            unit["folder_id"] = parent_id
+    save_unit_folders(folders)
+    save_units(units)
+    return unit_library_payload()
 
 
 @app.get("/api/markdown-docs")
@@ -778,6 +1103,177 @@ def delete_markdown_doc(payload: MarkdownDocPayload) -> dict[str, Any]:
     docs = [item for item in docs if item["id"] != doc_id]
     save_markdown_docs_index(docs)
     return {"docs": [markdown_doc_summary(doc) for doc in load_markdown_docs_index()]}
+
+
+@app.get("/api/assets")
+def list_assets() -> dict[str, Any]:
+    return asset_library_with_counts()
+
+
+@app.post("/api/assets/categories/save")
+def save_asset_category(payload: AssetCategoryPayload) -> dict[str, Any]:
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="分类名称不能为空")
+    library = load_asset_library()
+    existing = next((item for item in library["categories"] if item["id"] == payload.id.strip()), None)
+    parent_id = payload.parent_id.strip()
+    valid_parent_ids = {item["id"] for item in library["categories"]}
+    if parent_id not in valid_parent_ids or (existing and parent_id == existing["id"]):
+        parent_id = ""
+    timestamp = now_text()
+    category_id = existing["id"] if existing else uuid.uuid4().hex
+    category = {
+        "id": category_id,
+        "name": name,
+        "parent_id": parent_id if not existing else parent_id,
+        "created_at": (existing or {}).get("created_at") or timestamp,
+        "updated_at": timestamp,
+    }
+    library["categories"] = [item for item in library["categories"] if item["id"] != category_id]
+    library["categories"].append(category)
+    save_asset_library(library)
+    return asset_library_with_counts()
+
+
+@app.post("/api/assets/categories/delete")
+def delete_asset_category(payload: AssetCategoryPayload) -> dict[str, Any]:
+    category_id = payload.id.strip()
+    library = load_asset_library()
+    delete_ids = {category_id}
+    changed = True
+    while changed:
+        changed = False
+        for item in library["categories"]:
+            if item.get("parent_id", "") in delete_ids and item["id"] not in delete_ids:
+                delete_ids.add(item["id"])
+                changed = True
+    library["categories"] = [item for item in library["categories"] if item["id"] not in delete_ids]
+    library["assets"] = [item for item in library["assets"] if item["category_id"] not in delete_ids]
+    save_asset_library(library)
+    return asset_library_with_counts()
+
+
+@app.post("/api/assets/add-batch")
+def add_assets_batch(payload: AssetBatchPayload) -> dict[str, Any]:
+    category_id = payload.category_id.strip()
+    library = load_asset_library()
+    if not any(item["id"] == category_id for item in library["categories"]):
+        raise HTTPException(status_code=400, detail="请先选择有效的素材分类")
+    timestamp = now_text()
+    existing_keys = {(item["category_id"], item["url"]) for item in library["assets"] if item.get("url")}
+    added_count = 0
+    for item in payload.assets:
+        name = item.name.strip() or "未命名素材"
+        url = item.url.strip()
+        preview_url = item.preview_url.strip() or url
+        if not preview_url or (url and (category_id, url) in existing_keys):
+            continue
+        library["assets"].append(
+            {
+                "id": uuid.uuid4().hex,
+                "category_id": category_id,
+                "name": name,
+                "url": url,
+                "preview_url": preview_url,
+                "created_at": timestamp,
+                "updated_at": timestamp,
+            }
+        )
+        if url:
+            existing_keys.add((category_id, url))
+        added_count += 1
+    save_asset_library(library)
+    data = asset_library_with_counts()
+    data["added_count"] = added_count
+    return data
+
+
+@app.post("/api/assets/add")
+def add_asset(payload: AssetItemPayload) -> dict[str, Any]:
+    category_id = payload.category_id.strip()
+    name = payload.name.strip() or "未命名素材"
+    url = payload.url.strip()
+    library = load_asset_library()
+    if not any(item["id"] == category_id for item in library["categories"]):
+        raise HTTPException(status_code=400, detail="请先选择有效的素材分类")
+    if payload.data_url.strip():
+        preview_url = save_asset_data_url(payload.data_url, name)
+        url = ""
+    elif url:
+        preview_url = download_asset_preview(url)
+    elif payload.preview_url.strip():
+        preview_url = payload.preview_url.strip()
+    else:
+        raise HTTPException(status_code=400, detail="请提供图片 URL 或拖入图片")
+    if url and any(item["category_id"] == category_id and item.get("url") == url for item in library["assets"]):
+        raise HTTPException(status_code=400, detail="这个 URL 已经在当前分类中")
+    timestamp = now_text()
+    library["assets"].append(
+        {
+            "id": uuid.uuid4().hex,
+            "category_id": category_id,
+            "name": name,
+            "url": url,
+            "preview_url": preview_url,
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        }
+    )
+    save_asset_library(library)
+    return asset_library_with_counts()
+
+
+@app.post("/api/assets/delete")
+def delete_asset(payload: AssetItemPayload) -> dict[str, Any]:
+    asset_id = payload.id.strip()
+    library = load_asset_library()
+    library["assets"] = [item for item in library["assets"] if item["id"] != asset_id]
+    save_asset_library(library)
+    return asset_library_with_counts()
+
+
+@app.post("/api/assets/rename")
+def rename_asset(payload: AssetItemPayload) -> dict[str, Any]:
+    asset_id = payload.id.strip()
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="素材名称不能为空")
+    library = load_asset_library()
+    renamed = False
+    timestamp = now_text()
+    for item in library["assets"]:
+        if item["id"] == asset_id:
+            item["name"] = name
+            item["updated_at"] = timestamp
+            renamed = True
+            break
+    if not renamed:
+        raise HTTPException(status_code=404, detail="素材不存在")
+    save_asset_library(library)
+    return asset_library_with_counts()
+
+
+@app.post("/api/assets/move")
+def move_assets(payload: AssetMovePayload) -> dict[str, Any]:
+    category_id = payload.category_id.strip()
+    asset_ids = {asset_id.strip() for asset_id in payload.asset_ids if asset_id.strip()}
+    if not asset_ids:
+        raise HTTPException(status_code=400, detail="请先选择要移动的素材")
+    library = load_asset_library()
+    if not any(item["id"] == category_id for item in library["categories"]):
+        raise HTTPException(status_code=400, detail="目标文件夹不存在")
+    timestamp = now_text()
+    moved_count = 0
+    for item in library["assets"]:
+        if item["id"] in asset_ids and item["category_id"] != category_id:
+            item["category_id"] = category_id
+            item["updated_at"] = timestamp
+            moved_count += 1
+    save_asset_library(library)
+    data = asset_library_with_counts()
+    data["moved_count"] = moved_count
+    return data
 
 
 @app.post("/api/image/white-transparent")

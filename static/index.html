@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tool Box</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260707-markdown-single" />
+    <link rel="stylesheet" href="/static/style.css?v=20260715-asset-rename" />
   </head>
   <body>
     <div class="app-shell">
@@ -21,6 +21,7 @@
           <button class="nav-item" data-view="json">JSON 替换</button>
           <button class="nav-item" data-view="image">图片透明化</button>
           <button class="nav-item" data-view="upload">批量上传</button>
+          <button class="nav-item" data-view="assets">素材库</button>
           <button class="nav-item" data-view="markdown">Markdown 文档</button>
           <button class="nav-item" data-view="url-preview">URL 图片预览</button>
         </nav>
@@ -89,9 +90,19 @@
                 <button id="deleteUnitBtn">删除模板</button>
               </div>
               <label class="field">
+                <span>新建文件夹</span>
+                <input id="unitFolderName" placeholder="在当前位置新建文件夹" />
+              </label>
+              <div class="actions stretch">
+                <button id="createUnitFolderBtn">新建文件夹</button>
+                <button id="deleteUnitFolderBtn">删除文件夹</button>
+              </div>
+              <button id="unitFolderBackBtn" class="wide-button">返回上级</button>
+              <label class="field">
                 <span>搜索模板</span>
                 <input id="unitSearch" placeholder="输入关键字自动过滤" />
               </label>
+              <div id="unitFolderPath" class="unit-meta">当前位置：根目录</div>
               <div id="unitMeta" class="unit-meta">创建：未记录<br />修改：未记录</div>
               <div id="unitList" class="unit-list"></div>
             </div>
@@ -203,9 +214,71 @@
             <div class="panel">
               <div class="panel-head">
                 <h3>上传结果</h3>
-                <button id="copyUploadResultBtn">复制结果</button>
+                <div class="actions">
+                  <button id="addUploadAssetsBtn" class="primary">添加到素材库</button>
+                  <button id="copyUploadResultBtn">复制结果</button>
+                </div>
+              </div>
+              <div class="asset-save-row">
+                <label class="field">
+                  <span>保存到分类</span>
+                  <select id="uploadAssetCategory"></select>
+                </label>
+                <button id="quickCreateAssetCategoryBtn">新建分类</button>
               </div>
               <pre id="uploadResult" class="log tall"></pre>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-assets" class="view">
+          <div class="asset-layout">
+            <div class="panel asset-sidebar-panel">
+              <div class="panel-head">
+                <h3>素材分类</h3>
+                <button id="refreshAssetsBtn">刷新</button>
+              </div>
+              <label class="field">
+                <span>新分类</span>
+                <input id="assetCategoryName" placeholder="在当前位置新建文件夹" />
+              </label>
+              <div class="actions stretch">
+                <button id="createAssetCategoryBtn" class="primary">新建文件夹</button>
+                <button id="deleteAssetCategoryBtn">删除分类</button>
+              </div>
+              <label class="field">
+                <span>搜索素材</span>
+                <input id="assetSearch" placeholder="按名称或 URL 过滤" />
+              </label>
+              <div id="assetCategoryList" class="unit-list"></div>
+            </div>
+            <div class="panel asset-main-panel">
+              <div class="panel-head">
+                <h3 id="assetViewTitle">素材库</h3>
+                <div class="actions">
+                  <button id="assetBackBtn">返回分类</button>
+                  <button id="copySelectedAssetUrlBtn">复制选中 URL</button>
+                </div>
+              </div>
+              <div id="assetAddPanel" class="asset-add-panel hidden">
+                <div class="asset-add-fields">
+                  <label class="field">
+                    <span>素材名称</span>
+                    <input id="assetNameInput" placeholder="不填则自动使用文件名或 URL 文件名" />
+                  </label>
+                  <label class="field">
+                    <span>图片 URL</span>
+                    <input id="assetUrlInput" placeholder="粘贴图片 URL 后添加，会自动下载预览图" />
+                  </label>
+                  <button id="addAssetUrlBtn" class="primary">添加 URL 素材</button>
+                </div>
+                <label id="assetDropZone" class="drop-zone compact">
+                  <input id="assetFileInput" type="file" accept="image/*" multiple />
+                  <span>拖入图片或选择图片添加，本地图片的 URL 先留空</span>
+                </label>
+              </div>
+              <div id="assetFolderGrid" class="asset-folder-grid"></div>
+              <div id="assetGrid" class="asset-grid hidden"></div>
             </div>
           </div>
         </section>
@@ -299,6 +372,6 @@
         </section>
       </main>
     </div>
-    <script src="/static/app.js?v=20260707-markdown-single"></script>
+    <script src="/static/app.js?v=20260715-asset-rename"></script>
   </body>
 </html>

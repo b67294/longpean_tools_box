@@ -1,0 +1,133 @@
+{
+  "categories": [
+    {
+      "id": "e00337e75dd04450b66c3e0689a2c9d2",
+      "name": "2号雪梨纸+信封-主图-阴影和描边和孔",
+      "parent_id": "5ef8e18c11604318855db225020c512a",
+      "created_at": "2026-07-15 10:49:13",
+      "updated_at": "2026-07-15 10:49:13"
+    },
+    {
+      "id": "5ef8e18c11604318855db225020c512a",
+      "name": "三种侧面",
+      "parent_id": "9d0720945917438a849482b0d811db35",
+      "created_at": "2026-07-15 10:48:02",
+      "updated_at": "2026-07-15 10:48:02"
+    },
+    {
+      "id": "9d68e3d3acf24989a1e4a6710d031300",
+      "name": "测试图片",
+      "parent_id": "",
+      "created_at": "2026-07-15 10:01:29",
+      "updated_at": "2026-07-15 10:01:29"
+    },
+    {
+      "id": "9d0720945917438a849482b0d811db35",
+      "name": "礼品袋",
+      "parent_id": "",
+      "created_at": "2026-07-15 10:46:54",
+      "updated_at": "2026-07-15 10:46:54"
+    }
+  ],
+  "assets": [
+    {
+      "id": "9b26b5ea2d874acfb8d695352f25abab",
+      "category_id": "e00337e75dd04450b66c3e0689a2c9d2",
+      "name": "袋子线条.png",
+      "url": "https://pspk.longpean.com/f5c048af-11aa-4b7a-80f0-3b7312906c0b.png",
+      "preview_url": "https://pspk.longpean.com/f5c048af-11aa-4b7a-80f0-3b7312906c0b.png",
+      "created_at": "2026-07-15 15:25:39",
+      "updated_at": "2026-07-15 15:25:39"
+    },
+    {
+      "id": "72a79fb86b33481eaab5ba3e32389e96",
+      "category_id": "e00337e75dd04450b66c3e0689a2c9d2",
+      "name": "贺卡线条.png",
+      "url": "https://pspk.longpean.com/d65cec93-2fd5-405d-abc0-71334d8bdf33.png",
+      "preview_url": "https://pspk.longpean.com/d65cec93-2fd5-405d-abc0-71334d8bdf33.png",
+      "created_at": "2026-07-15 15:21:20",
+      "updated_at": "2026-07-15 15:21:20"
+    },
+    {
+      "id": "07b3673c9795476692cedc44d0009e53",
+      "category_id": "e00337e75dd04450b66c3e0689a2c9d2",
+      "name": "正面阴影",
+      "url": "https://pspk.longpean.com/ae740538-44ec-443c-9e58-964510154ba8.png",
+      "preview_url": "/asset-files/dae2c4b5e9184991b873fd05c21e6f35.png",
+      "created_at": "2026-07-15 15:18:26",
+      "updated_at": "2026-07-15 15:18:26"
+    },
+    {
+      "id": "fd0b780f9c894e338adc531c48d979c3",
+      "category_id": "9d0720945917438a849482b0d811db35",
+      "name": "信封版-礼品袋-尺寸-袋子.png",
+      "url": "https://pspk.longpean.com/c6543d62-3fff-4668-abae-d36ec53ce52c.png",
+      "preview_url": "https://pspk.longpean.com/c6543d62-3fff-4668-abae-d36ec53ce52c.png",
+      "created_at": "2026-07-15 11:23:19",
+      "updated_at": "2026-07-15 11:23:29"
+    },
+    {
+      "id": "7ce7e34ea6d2416e90fb34b9982b7d1d",
+      "category_id": "e00337e75dd04450b66c3e0689a2c9d2",
+      "name": "孔",
+      "url": "https://pspk.longpean.com/979cae73-98de-4c24-a7ff-4f31a39b1c41.png",
+      "preview_url": "/asset-files/2e5027486f6b40a7ab2224e47ec6135a.png",
+      "created_at": "2026-07-15 10:59:25",
+      "updated_at": "2026-07-15 10:59:25"
+    },
+    {
+      "id": "65879cdac4e248c5bbf85fd992c906ce",
+      "category_id": "e00337e75dd04450b66c3e0689a2c9d2",
+      "name": "贺卡阴影叠加.png",
+      "url": "https://pspk.longpean.com/a1e878c2-4e81-43a5-b6b4-4c8174b750cc.png",
+      "preview_url": "https://pspk.longpean.com/a1e878c2-4e81-43a5-b6b4-4c8174b750cc.png",
+      "created_at": "2026-07-15 10:49:49",
+      "updated_at": "2026-07-15 10:57:14"
+    },
+    {
+      "id": "3228022ef2df4e0187787f4a257e8cdf",
+      "category_id": "e00337e75dd04450b66c3e0689a2c9d2",
+      "name": "侧面阴影.png",
+      "url": "https://pspk.longpean.com/fff7bc07-9c2e-4284-9f46-3bff5ae946aa.png",
+      "preview_url": "https://pspk.longpean.com/fff7bc07-9c2e-4284-9f46-3bff5ae946aa.png",
+      "created_at": "2026-07-15 10:49:49",
+      "updated_at": "2026-07-15 10:57:13"
+    },
+    {
+      "id": "bb652303ccbf4c66814118a13c42f6cd",
+      "category_id": "9d68e3d3acf24989a1e4a6710d031300",
+      "name": "白色侧面",
+      "url": "https://pspk.longpean.com/26606.B0DCZP67K3dc.png",
+      "preview_url": "/asset-files/e9909d16f119434dbb1b08fb632f40f8.png",
+      "created_at": "2026-07-15 10:15:32",
+      "updated_at": "2026-07-15 10:15:32"
+    },
+    {
+      "id": "c572886b6b1f4917bff4ed1d9b4bb37d",
+      "category_id": "9d68e3d3acf24989a1e4a6710d031300",
+      "name": "白色正面",
+      "url": "https://pspk.longpean.com/24987.B0DCZP67K3d.png",
+      "preview_url": "/asset-files/771c05fa6790462e9b1a0aa7dac4e7fa.png",
+      "created_at": "2026-07-15 10:15:14",
+      "updated_at": "2026-07-15 16:26:40"
+    },
+    {
+      "id": "74399730203146c2bdd6e7c94bb4ed0d",
+      "category_id": "9d68e3d3acf24989a1e4a6710d031300",
+      "name": "粉色横版侧面",
+      "url": "https://pspk.longpean.com/1783924335639_1783924335630_popdvkgib19_6294%E6%90%9E%E7%AC%91%E7%94%9F%E6%97%A5%E7%A4%BC%E5%93%81%E8%A2%8B-3.png",
+      "preview_url": "/asset-files/a3183f423b014df0904bbd4a7c56afb1.png",
+      "created_at": "2026-07-15 10:12:40",
+      "updated_at": "2026-07-15 10:12:40"
+    },
+    {
+      "id": "3ce83f40fc55422ea91846a353597fd3",
+      "category_id": "9d68e3d3acf24989a1e4a6710d031300",
+      "name": "粉色横版正面",
+      "url": "https://pspk.longpean.com/1783924327305_1783924327283_pjnhc8dby4_6294%E6%90%9E%E7%AC%91%E7%94%9F%E6%97%A5%E7%A4%BC%E5%93%81%E8%A2%8B-1.png",
+      "preview_url": "/asset-files/2a106be868b9402f92c192036b801ca5.png",
+      "created_at": "2026-07-15 10:12:24",
+      "updated_at": "2026-07-15 10:12:24"
+    }
+  ]
+}

@@ -5,6 +5,8 @@ const state = {
   units: [],
   selectedUnit: null,
   unitSearch: "",
+  unitFolders: [],
+  selectedUnitFolderId: null,
   docs: [],
   selectedDocId: null,
   docSearch: "",
@@ -19,6 +21,15 @@ const state = {
     draw: null,
   },
   uploadFiles: [],
+  uploadResults: [],
+  assets: {
+    categories: [],
+    items: [],
+    selectedCategoryId: null,
+    selectedAssetId: null,
+    selectedAssetIds: [],
+    search: "",
+  },
   urlPreview: {
     statusTimer: null,
   },
@@ -162,6 +173,7 @@ function setView(viewName) {
     json: "JSON 替换",
     image: "图片透明化",
     upload: "批量上传",
+    assets: "素材库",
     markdown: "Markdown 文档",
     "url-preview": "URL 图片预览",
   };
@@ -242,11 +254,13 @@ function renderUnits() {
 async function refreshUnits() {
   const data = await api("/api/units");
   state.units = data.units || [];
+  state.unitFolders = data.folders || [];
   renderUnits();
 }
 
 function loadUnit(unit) {
   state.selectedUnit = unit.name;
+  state.selectedUnitFolderId = unit.folder_id || "";
   $("unitName").value = unit.name || "";
   $("jsonEditor").value = unit.json_text || "";
   $("sourceRules").value = unit.source_rules_text || "";
@@ -259,12 +273,14 @@ function loadUnit(unit) {
 async function saveUnit() {
   const data = await api("/api/units/save", {
     name: $("unitName").value,
+    folder_id: state.selectedUnitFolderId || "",
     json_text: $("jsonEditor").value,
     source_rules_text: $("sourceRules").value,
     placeholder_rules_text: $("placeholderRules").value,
     note_text: $("unitNote").value,
   });
   state.units = data.units || [];
+  state.unitFolders = data.folders || [];
   state.selectedUnit = $("unitName").value.trim();
   renderUnits();
   toast("模板已保存");
@@ -278,10 +294,62 @@ async function deleteUnit() {
   }
   const data = await api("/api/units/delete", { name });
   state.units = data.units || [];
+  state.unitFolders = data.folders || [];
   state.selectedUnit = null;
   $("unitName").value = "";
   renderUnits();
   toast("模板已删除");
+}
+
+async function createUnitFolder() {
+  const name = $("unitFolderName").value.trim();
+  if (!name) {
+    toast("请输入文件夹名称", true);
+    return;
+  }
+  const parentId = state.selectedUnitFolderId || "";
+  const data = await api("/api/unit-folders/save", { id: "", name, parent_id: parentId });
+  state.units = data.units || [];
+  state.unitFolders = data.folders || [];
+  const folder = state.unitFolders.find((item) => item.name === name && (item.parent_id || "") === parentId);
+  state.selectedUnitFolderId = folder?.id || state.selectedUnitFolderId;
+  $("unitFolderName").value = "";
+  renderUnits();
+  toast("模板文件夹已创建");
+}
+
+async function deleteUnitFolder() {
+  const folder = unitFolderById(state.selectedUnitFolderId);
+  if (!folder) {
+    toast("先进入一个文件夹", true);
+    return;
+  }
+  const confirmed = window.confirm(`确定删除文件夹《${folder.name}》吗？其中的模板会移动到上一级。`);
+  if (!confirmed) return;
+  const data = await api("/api/unit-folders/delete", { id: folder.id, name: folder.name, parent_id: folder.parent_id || "" });
+  state.selectedUnitFolderId = folder.parent_id || null;
+  state.units = data.units || [];
+  state.unitFolders = data.folders || [];
+  renderUnits();
+  toast("模板文件夹已删除，模板已移动到上一级");
+}
+
+async function moveUnitToFolder(name, folderId) {
+  if (!name) {
+    toast("没有识别到要移动的模板", true);
+    return;
+  }
+  const target = unitFolderById(folderId);
+  if (!target) {
+    toast("目标文件夹不存在", true);
+    return;
+  }
+  const data = await api("/api/units/move", { name, folder_id: folderId });
+  state.units = data.units || [];
+  state.unitFolders = data.folders || [];
+  state.selectedUnit = name;
+  renderUnits();
+  toast(`已移动到 ${target.name}`);
 }
 
 async function applyRulesFrom(textareaId) {
@@ -452,6 +520,31 @@ function renderUploadFiles() {
   });
 }
 
+function renderUploadAssetCategoryOptions() {
+  const select = $("uploadAssetCategory");
+  if (!select) return;
+  const currentValue = select.value;
+  select.innerHTML = "";
+  if (!state.assets.categories.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "暂无分类，请先新建";
+    select.appendChild(option);
+    return;
+  }
+  state.assets.categories.forEach((category) => {
+    const option = document.createElement("option");
+    option.value = category.id;
+    option.textContent = assetCategoryPath(category.id).join(" / ") || category.name;
+    select.appendChild(option);
+  });
+  if (currentValue && state.assets.categories.some((category) => category.id === currentValue)) {
+    select.value = currentValue;
+  } else if (state.assets.selectedCategoryId) {
+    select.value = state.assets.selectedCategoryId;
+  }
+}
+
 async function uploadImages(preprocess = false) {
   if (!state.uploadFiles.length) {
     toast("请先选择图片", true);
@@ -468,12 +561,509 @@ async function uploadImages(preprocess = false) {
     preprocess,
     images,
   });
+  state.uploadResults = data.results || [];
   const lines = (data.results || []).map((item) => {
     if (item.ok) return `${item.file_name}: ${item.url}`;
     return `${item.file_name}: 上传失败 - ${item.error}`;
   });
   $("uploadResult").textContent = lines.join("\n");
   toast(preprocess ? "预处理上传完成" : "直接上传完成");
+}
+
+function successfulUploadAssets() {
+  return state.uploadResults
+    .filter((item) => item.ok && item.url)
+    .map((item) => ({ id: "", category_id: $("uploadAssetCategory").value, name: item.file_name, url: item.url, preview_url: item.url }));
+}
+
+async function addUploadResultsToAssetLibrary() {
+  const categoryId = $("uploadAssetCategory").value;
+  if (!categoryId) {
+    toast("请先选择或新建素材分类", true);
+    return;
+  }
+  const assets = successfulUploadAssets();
+  if (!assets.length) {
+    toast("没有可添加的上传成功结果", true);
+    return;
+  }
+  const data = await api("/api/assets/add-batch", { category_id: categoryId, assets });
+  applyAssetLibrary(data);
+  state.assets.selectedCategoryId = categoryId;
+  renderAssetLibrary();
+  toast(`已添加 ${data.added_count || 0} 个素材`);
+}
+
+function applyAssetLibrary(data = {}) {
+  state.assets.categories = data.categories || [];
+  state.assets.items = data.assets || [];
+  if (
+    state.assets.selectedCategoryId &&
+    !state.assets.categories.some((category) => category.id === state.assets.selectedCategoryId)
+  ) {
+    state.assets.selectedCategoryId = null;
+  }
+  const existingAssetIds = new Set(state.assets.items.map((asset) => asset.id));
+  state.assets.selectedAssetIds = state.assets.selectedAssetIds.filter((assetId) => existingAssetIds.has(assetId));
+  if (state.assets.selectedAssetId && !existingAssetIds.has(state.assets.selectedAssetId)) {
+    state.assets.selectedAssetId = null;
+  }
+  renderUploadAssetCategoryOptions();
+}
+
+async function refreshAssets() {
+  const data = await api("/api/assets");
+  applyAssetLibrary(data);
+  renderAssetLibrary();
+}
+
+function assetCount(categoryId) {
+  return state.assets.items.filter((asset) => asset.category_id === categoryId).length;
+}
+
+function childCategories(parentId = "") {
+  return state.assets.categories.filter((category) => (category.parent_id || "") === (parentId || ""));
+}
+
+function assetCategoryById(categoryId) {
+  return state.assets.categories.find((category) => category.id === categoryId) || null;
+}
+
+function assetCategoryPath(categoryId) {
+  const path = [];
+  const seen = new Set();
+  let current = assetCategoryById(categoryId);
+  while (current && !seen.has(current.id)) {
+    path.unshift(current.name);
+    seen.add(current.id);
+    current = assetCategoryById(current.parent_id || "");
+  }
+  return path;
+}
+
+function getFilteredAssets(categoryId) {
+  const keyword = state.assets.search.trim().toLowerCase();
+  return state.assets.items.filter((asset) => {
+    if (categoryId && asset.category_id !== categoryId) return false;
+    if (!keyword) return true;
+    return `${asset.name || ""} ${asset.url || ""} ${asset.preview_url || ""}`.toLowerCase().includes(keyword);
+  });
+}
+
+function selectedAssetCategory() {
+  return assetCategoryById(state.assets.selectedCategoryId);
+}
+
+function selectedAssetIdSet() {
+  return new Set(state.assets.selectedAssetIds);
+}
+
+function toggleAssetSelection(assetId, forceSelected = null) {
+  const ids = selectedAssetIdSet();
+  const shouldSelect = forceSelected === null ? !ids.has(assetId) : forceSelected;
+  if (shouldSelect) {
+    ids.add(assetId);
+    state.assets.selectedAssetId = assetId;
+  } else {
+    ids.delete(assetId);
+    if (state.assets.selectedAssetId === assetId) {
+      state.assets.selectedAssetId = state.assets.selectedAssetIds.find((id) => id !== assetId) || null;
+    }
+  }
+  state.assets.selectedAssetIds = Array.from(ids);
+}
+
+function assetDragIds(assetId) {
+  const ids = selectedAssetIdSet();
+  if (!ids.has(assetId)) {
+    state.assets.selectedAssetIds = [assetId];
+    state.assets.selectedAssetId = assetId;
+    return [assetId];
+  }
+  return Array.from(ids);
+}
+
+function bindAssetFolderDrop(target, categoryId) {
+  target.addEventListener("dragover", (event) => {
+    if (!Array.from(event.dataTransfer.types).includes("application/x-toolbox-assets")) return;
+    event.preventDefault();
+    target.classList.add("asset-drop-target");
+  });
+  target.addEventListener("dragleave", () => {
+    target.classList.remove("asset-drop-target");
+  });
+  target.addEventListener("drop", (event) => {
+    if (!Array.from(event.dataTransfer.types).includes("application/x-toolbox-assets")) return;
+    event.preventDefault();
+    target.classList.remove("asset-drop-target");
+    const raw = event.dataTransfer.getData("application/x-toolbox-assets");
+    let assetIds = [];
+    try {
+      assetIds = JSON.parse(raw);
+    } catch (_error) {
+      assetIds = [];
+    }
+    run(() => moveAssetsToCategory(categoryId, assetIds));
+  });
+}
+
+function renderAssetCategoryList() {
+  const list = $("assetCategoryList");
+  list.innerHTML = "";
+  if (!state.assets.categories.length) {
+    list.textContent = "暂无分类";
+    list.classList.add("empty");
+    return;
+  }
+  list.classList.remove("empty");
+  const appendCategory = (category, depth = 0) => {
+    const button = document.createElement("button");
+    button.className = `unit-item${state.assets.selectedCategoryId === category.id ? " active" : ""}`;
+    const name = document.createElement("span");
+    name.className = "unit-item-name";
+    name.textContent = `${"  ".repeat(depth)}${depth ? "└ " : ""}${category.name}`;
+    const meta = document.createElement("span");
+    meta.className = "unit-item-meta";
+    meta.textContent = `${assetCount(category.id)} 个素材 · ${category.child_count || 0} 个子文件夹`;
+    button.append(name, meta);
+    button.addEventListener("click", () => {
+      state.assets.selectedCategoryId = category.id;
+      state.assets.selectedAssetId = null;
+      state.assets.selectedAssetIds = [];
+      renderAssetLibrary();
+    });
+    bindAssetFolderDrop(button, category.id);
+    list.appendChild(button);
+    childCategories(category.id).forEach((child) => appendCategory(child, depth + 1));
+  };
+  childCategories("").forEach((category) => appendCategory(category));
+}
+
+function renderAssetFolders(parentId = "") {
+  const folderGrid = $("assetFolderGrid");
+  folderGrid.innerHTML = "";
+  const folders = childCategories(parentId);
+  if (!folders.length) {
+    folderGrid.innerHTML = parentId ? "" : '<div class="empty asset-empty">先在左侧新建一个分类</div>';
+    return;
+  }
+  folders.forEach((category) => {
+    const button = document.createElement("button");
+    button.className = "asset-folder";
+    button.innerHTML = `
+      <div class="folder-icon" aria-hidden="true"></div>
+      <div class="asset-folder-name"></div>
+      <div class="asset-folder-meta">${assetCount(category.id)} 个素材 · ${category.child_count || 0} 个子文件夹</div>
+    `;
+    button.querySelector(".asset-folder-name").textContent = category.name;
+    button.addEventListener("click", () => {
+      state.assets.selectedCategoryId = category.id;
+      state.assets.selectedAssetId = null;
+      state.assets.selectedAssetIds = [];
+      renderAssetLibrary();
+    });
+    bindAssetFolderDrop(button, category.id);
+    folderGrid.appendChild(button);
+  });
+}
+
+function renderAssetGrid() {
+  const grid = $("assetGrid");
+  grid.innerHTML = "";
+  const category = selectedAssetCategory();
+  if (!category) return;
+  const assets = getFilteredAssets(category.id);
+  if (!assets.length) {
+    grid.innerHTML = '<div class="empty asset-empty">这个分类里还没有素材</div>';
+    return;
+  }
+  assets.forEach((asset) => {
+    const card = document.createElement("div");
+    const selectedIds = selectedAssetIdSet();
+    card.className = `asset-card${selectedIds.has(asset.id) ? " active" : ""}`;
+    card.draggable = true;
+    card.innerHTML = `
+      <button class="asset-thumb-button" title="选择素材">
+        <span class="asset-select-indicator">${selectedIds.has(asset.id) ? "已选" : "选择"}</span>
+        <img alt="" loading="lazy" />
+      </button>
+      <div class="asset-card-body">
+        <div class="asset-card-name"></div>
+        <div class="asset-card-url"></div>
+        <div class="actions">
+          <button class="copy-asset-url">复制 URL</button>
+          <button class="delete-asset">删除</button>
+        </div>
+      </div>
+    `;
+    card.querySelector("img").src = asset.preview_url || asset.url;
+    card.querySelector("img").alt = asset.name;
+    const nameNode = card.querySelector(".asset-card-name");
+    nameNode.textContent = asset.name;
+    nameNode.title = "双击重命名";
+    nameNode.addEventListener("dblclick", (event) => {
+      event.stopPropagation();
+      startAssetRename(asset, nameNode);
+    });
+    card.querySelector(".asset-card-url").textContent = asset.url || "本地图片，URL 为空";
+    card.querySelector(".asset-thumb-button").addEventListener("click", () => {
+      toggleAssetSelection(asset.id);
+      renderAssetGrid();
+    });
+    card.addEventListener("dragstart", (event) => {
+      const ids = assetDragIds(asset.id);
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("application/x-toolbox-assets", JSON.stringify(ids));
+      event.dataTransfer.setData("text/plain", `${ids.length} 个素材`);
+      card.classList.add("dragging");
+    });
+    card.addEventListener("dragend", () => {
+      card.classList.remove("dragging");
+    });
+    card.querySelector(".copy-asset-url").addEventListener("click", async () => {
+      if (!asset.url) {
+        toast("这个素材还没有 URL", true);
+        return;
+      }
+      await navigator.clipboard.writeText(asset.url);
+      state.assets.selectedAssetId = asset.id;
+      renderAssetGrid();
+      toast("素材 URL 已复制");
+    });
+    card.querySelector(".delete-asset").addEventListener("click", () => run(() => deleteAsset(asset.id)));
+    grid.appendChild(card);
+  });
+}
+
+function startAssetRename(asset, nameNode) {
+  const input = document.createElement("input");
+  input.className = "asset-name-input";
+  input.value = asset.name;
+  nameNode.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let finished = false;
+  const finish = (save) => {
+    if (finished) return;
+    finished = true;
+    const nextName = input.value.trim();
+    if (!save || !nextName || nextName === asset.name) {
+      renderAssetGrid();
+      return;
+    }
+    run(() => renameAsset(asset, nextName));
+  };
+
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      finish(true);
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      finish(false);
+    }
+  });
+  input.addEventListener("blur", () => finish(true));
+}
+
+async function renameAsset(asset, name) {
+  const data = await api("/api/assets/rename", {
+    id: asset.id,
+    category_id: asset.category_id,
+    name,
+    url: asset.url || "",
+    preview_url: asset.preview_url || "",
+  });
+  applyAssetLibrary(data);
+  renderAssetLibrary();
+  toast("素材名称已更新");
+}
+
+function renderAssetLibrary() {
+  const category = selectedAssetCategory();
+  const currentChildren = childCategories(category?.id || "");
+  renderAssetCategoryList();
+  $("assetFolderGrid").classList.toggle("hidden", Boolean(category) && !currentChildren.length);
+  $("assetFolderGrid").classList.toggle("compact", Boolean(category));
+  $("assetGrid").classList.toggle("hidden", !category);
+  $("assetAddPanel").classList.toggle("hidden", !category);
+  $("assetBackBtn").disabled = !category;
+  $("copySelectedAssetUrlBtn").disabled = state.assets.selectedAssetIds.length !== 1;
+  $("deleteAssetCategoryBtn").disabled = !category;
+  const selectedText = state.assets.selectedAssetIds.length ? ` · 已选 ${state.assets.selectedAssetIds.length}` : "";
+  $("assetViewTitle").textContent = `${category ? assetCategoryPath(category.id).join(" / ") : "素材库"}${selectedText}`;
+  renderAssetFolders(category?.id || "");
+  if (category) {
+    renderAssetGrid();
+  }
+}
+
+async function createAssetCategory(name = "") {
+  const categoryName = (name || $("assetCategoryName").value).trim();
+  if (!categoryName) {
+    toast("请输入分类名称", true);
+    return;
+  }
+  const parentId = state.assets.selectedCategoryId || "";
+  const data = await api("/api/assets/categories/save", { id: "", name: categoryName, parent_id: parentId });
+  applyAssetLibrary(data);
+  const category = state.assets.categories.find((item) => item.name === categoryName && (item.parent_id || "") === parentId);
+  state.assets.selectedCategoryId = category?.id || state.assets.selectedCategoryId;
+  $("assetCategoryName").value = "";
+  renderAssetLibrary();
+  toast("素材分类已创建");
+}
+
+async function quickCreateUploadAssetCategory() {
+  const name = window.prompt("请输入素材分类名称");
+  if (!name) return;
+  await createAssetCategory(name);
+  if (state.assets.selectedCategoryId) {
+    $("uploadAssetCategory").value = state.assets.selectedCategoryId;
+  }
+}
+
+function nameFromAssetUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const name = decodeURIComponent(parsed.pathname.split("/").filter(Boolean).pop() || "");
+    return name || "URL 素材";
+  } catch (_error) {
+    return "URL 素材";
+  }
+}
+
+async function addAssetFromUrl() {
+  const category = selectedAssetCategory();
+  if (!category) {
+    toast("先进入一个素材分类", true);
+    return;
+  }
+  const url = $("assetUrlInput").value.trim();
+  if (!url) {
+    toast("请先粘贴图片 URL", true);
+    return;
+  }
+  const name = $("assetNameInput").value.trim() || nameFromAssetUrl(url);
+  $("addAssetUrlBtn").disabled = true;
+  $("addAssetUrlBtn").textContent = "添加中...";
+  try {
+    const data = await api("/api/assets/add", {
+      id: "",
+      category_id: category.id,
+      name,
+      url,
+      preview_url: "",
+      data_url: "",
+    });
+    applyAssetLibrary(data);
+    $("assetNameInput").value = "";
+    $("assetUrlInput").value = "";
+    renderAssetLibrary();
+    toast("URL 素材已添加");
+  } finally {
+    $("addAssetUrlBtn").disabled = false;
+    $("addAssetUrlBtn").textContent = "添加 URL 素材";
+  }
+}
+
+async function addAssetFiles(files) {
+  const category = selectedAssetCategory();
+  if (!category) {
+    toast("先进入一个素材分类", true);
+    return;
+  }
+  let lastData = null;
+  for (const file of files) {
+    const dataUrl = await fileToDataUrl(file);
+    lastData = await api("/api/assets/add", {
+      id: "",
+      category_id: category.id,
+      name: file.name,
+      url: "",
+      preview_url: "",
+      data_url: dataUrl,
+    });
+  }
+  if (lastData) {
+    applyAssetLibrary(lastData);
+    renderAssetLibrary();
+  }
+  toast(`已添加 ${files.length} 个本地素材`);
+}
+
+async function deleteAssetCategory() {
+  const category = selectedAssetCategory();
+  if (!category) {
+    toast("先选择分类", true);
+    return;
+  }
+  const confirmed = window.confirm(`确定删除《${category.name}》及其中所有素材吗？`);
+  if (!confirmed) return;
+  const data = await api("/api/assets/categories/delete", { id: category.id, name: category.name, parent_id: category.parent_id || "" });
+  state.assets.selectedCategoryId = category.parent_id || null;
+  state.assets.selectedAssetId = null;
+  applyAssetLibrary(data);
+  renderAssetLibrary();
+  toast("素材分类已删除");
+}
+
+async function deleteAsset(assetId) {
+  const asset = state.assets.items.find((item) => item.id === assetId);
+  if (!asset) return;
+  const confirmed = window.confirm(`确定删除《${asset.name}》吗？`);
+  if (!confirmed) return;
+  const data = await api("/api/assets/delete", {
+    id: asset.id,
+    category_id: asset.category_id,
+    name: asset.name,
+    url: asset.url,
+    preview_url: asset.preview_url || "",
+  });
+  state.assets.selectedAssetId = null;
+  state.assets.selectedAssetIds = state.assets.selectedAssetIds.filter((id) => id !== asset.id);
+  applyAssetLibrary(data);
+  renderAssetLibrary();
+  toast("素材已删除");
+}
+
+async function copySelectedAssetUrl() {
+  if (state.assets.selectedAssetIds.length !== 1) {
+    toast("请选择一个素材再复制 URL", true);
+    return;
+  }
+  const asset = state.assets.items.find((item) => item.id === state.assets.selectedAssetIds[0]);
+  if (!asset) {
+    toast("先选择一个素材", true);
+    return;
+  }
+  if (!asset.url) {
+    toast("这个素材还没有 URL", true);
+    return;
+  }
+  await navigator.clipboard.writeText(asset.url);
+  toast("素材 URL 已复制");
+}
+
+async function moveAssetsToCategory(categoryId, assetIds = []) {
+  const ids = (assetIds.length ? assetIds : state.assets.selectedAssetIds).filter(Boolean);
+  if (!ids.length) {
+    toast("请先选择素材", true);
+    return;
+  }
+  const target = assetCategoryById(categoryId);
+  if (!target) {
+    toast("目标文件夹不存在", true);
+    return;
+  }
+  const data = await api("/api/assets/move", { category_id: categoryId, asset_ids: ids });
+  applyAssetLibrary(data);
+  state.assets.selectedAssetId = null;
+  state.assets.selectedAssetIds = [];
+  renderAssetLibrary();
+  toast(`已移动 ${data.moved_count || 0} 个素材到 ${target.name}`);
 }
 
 async function shutdownServer() {
@@ -518,6 +1108,53 @@ function formatUnitTime(value) {
   return value || "未记录";
 }
 
+function unitFolderById(folderId) {
+  return state.unitFolders.find((folder) => folder.id === folderId) || null;
+}
+
+function childUnitFolders(parentId = "") {
+  return state.unitFolders.filter((folder) => (folder.parent_id || "") === (parentId || ""));
+}
+
+function unitFolderPath(folderId) {
+  const path = [];
+  const seen = new Set();
+  let current = unitFolderById(folderId);
+  while (current && !seen.has(current.id)) {
+    path.unshift(current.name);
+    seen.add(current.id);
+    current = unitFolderById(current.parent_id || "");
+  }
+  return path;
+}
+
+function updateUnitFolderPath() {
+  const node = $("unitFolderPath");
+  if (!node) return;
+  const path = unitFolderPath(state.selectedUnitFolderId);
+  node.textContent = `当前位置：${path.length ? path.join(" / ") : "根目录"}`;
+  $("unitFolderBackBtn").disabled = !state.selectedUnitFolderId;
+  $("deleteUnitFolderBtn").disabled = !state.selectedUnitFolderId;
+}
+
+function bindUnitFolderDrop(target, folderId) {
+  target.addEventListener("dragover", (event) => {
+    if (!Array.from(event.dataTransfer.types).includes("application/x-toolbox-unit")) return;
+    event.preventDefault();
+    target.classList.add("unit-drop-target");
+  });
+  target.addEventListener("dragleave", () => {
+    target.classList.remove("unit-drop-target");
+  });
+  target.addEventListener("drop", (event) => {
+    if (!Array.from(event.dataTransfer.types).includes("application/x-toolbox-unit")) return;
+    event.preventDefault();
+    target.classList.remove("unit-drop-target");
+    const name = event.dataTransfer.getData("application/x-toolbox-unit");
+    run(() => moveUnitToFolder(name, folderId));
+  });
+}
+
 function updateUnitMeta(unit = null) {
   const node = $("unitMeta");
   if (!node) return;
@@ -526,8 +1163,9 @@ function updateUnitMeta(unit = null) {
 
 function getFilteredUnits() {
   const keyword = state.unitSearch.trim().toLowerCase();
-  if (!keyword) return state.units;
   return state.units.filter((unit) => {
+    if ((unit.folder_id || "") !== (state.selectedUnitFolderId || "")) return false;
+    if (!keyword) return true;
     const text = `${unit.name || ""} ${unit.note_text || ""}`.toLowerCase();
     return text.includes(keyword);
   });
@@ -536,21 +1174,42 @@ function getFilteredUnits() {
 function renderUnits() {
   const list = $("unitList");
   list.innerHTML = "";
-  if (!state.units.length) {
+  updateUnitFolderPath();
+  const folders = childUnitFolders(state.selectedUnitFolderId || "");
+  if (!state.units.length && !folders.length) {
     list.textContent = "暂无模板";
     list.classList.add("empty");
     return;
   }
   const units = getFilteredUnits();
-  if (!units.length) {
+  if (!units.length && !folders.length) {
     list.textContent = "没有匹配的模板";
     list.classList.add("empty");
     return;
   }
   list.classList.remove("empty");
+  folders.forEach((folder) => {
+    const button = document.createElement("button");
+    button.className = "unit-item unit-folder-item";
+    const name = document.createElement("span");
+    name.className = "unit-item-name";
+    name.textContent = `文件夹 · ${folder.name}`;
+    const meta = document.createElement("span");
+    meta.className = "unit-item-meta";
+    meta.textContent = `${folder.unit_count || 0} 个模板 · ${folder.child_count || 0} 个子文件夹`;
+    button.append(name, meta);
+    button.addEventListener("click", () => {
+      state.selectedUnitFolderId = folder.id;
+      state.selectedUnit = null;
+      renderUnits();
+    });
+    bindUnitFolderDrop(button, folder.id);
+    list.appendChild(button);
+  });
   units.forEach((unit) => {
     const button = document.createElement("button");
     button.className = `unit-item${state.selectedUnit === unit.name ? " active" : ""}`;
+    button.draggable = true;
     const name = document.createElement("span");
     name.className = "unit-item-name";
     name.textContent = unit.name;
@@ -559,6 +1218,15 @@ function renderUnits() {
     meta.textContent = `创建 ${formatUnitTime(unit.created_at)} · 修改 ${formatUnitTime(unit.updated_at)}`;
     button.append(name, meta);
     button.addEventListener("click", () => loadUnit(unit));
+    button.addEventListener("dragstart", (event) => {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("application/x-toolbox-unit", unit.name);
+      event.dataTransfer.setData("text/plain", unit.name);
+      button.classList.add("dragging");
+    });
+    button.addEventListener("dragend", () => {
+      button.classList.remove("dragging");
+    });
     list.appendChild(button);
   });
 }
@@ -598,6 +1266,7 @@ function bindUnitPanelResize() {
 
 function loadUnit(unit) {
   state.selectedUnit = unit.name;
+  state.selectedUnitFolderId = unit.folder_id || "";
   $("unitName").value = unit.name || "";
   $("jsonEditor").value = unit.json_text || "";
   $("sourceRules").value = unit.source_rules_text || "";
@@ -611,12 +1280,14 @@ function loadUnit(unit) {
 async function saveUnit() {
   const data = await api("/api/units/save", {
     name: $("unitName").value,
+    folder_id: state.selectedUnitFolderId || "",
     json_text: $("jsonEditor").value,
     source_rules_text: $("sourceRules").value,
     placeholder_rules_text: $("placeholderRules").value,
     note_text: $("unitNote").value,
   });
   state.units = data.units || [];
+  state.unitFolders = data.folders || [];
   state.selectedUnit = $("unitName").value.trim();
   updateUnitMeta(state.units.find((unit) => unit.name === state.selectedUnit));
   renderUnits();
@@ -631,6 +1302,7 @@ async function deleteUnit() {
   }
   const data = await api("/api/units/delete", { name });
   state.units = data.units || [];
+  state.unitFolders = data.folders || [];
   state.selectedUnit = null;
   $("unitName").value = "";
   updateUnitMeta();
@@ -992,6 +1664,9 @@ function bindEvents() {
         $("viewTitle").textContent = "URL 图片预览";
         run(refreshUrlPreviewStatus);
       }
+      if (button.dataset.view === "assets") {
+        run(refreshAssets);
+      }
     });
   });
   $("promptFormatBtn").addEventListener("click", () => run(() => formatTextarea("promptJson")));
@@ -1001,6 +1676,14 @@ function bindEvents() {
   $("refreshUnitsBtn").addEventListener("click", () => run(refreshUnits));
   $("saveUnitBtn").addEventListener("click", () => run(saveUnit));
   $("deleteUnitBtn").addEventListener("click", () => run(deleteUnit));
+  $("createUnitFolderBtn").addEventListener("click", () => run(createUnitFolder));
+  $("deleteUnitFolderBtn").addEventListener("click", () => run(deleteUnitFolder));
+  $("unitFolderBackBtn").addEventListener("click", () => {
+    const folder = unitFolderById(state.selectedUnitFolderId);
+    state.selectedUnitFolderId = folder?.parent_id || null;
+    state.selectedUnit = null;
+    renderUnits();
+  });
   $("unitSearch").addEventListener("input", (event) => {
     state.unitSearch = event.target.value;
     renderUnits();
@@ -1048,6 +1731,36 @@ function bindEvents() {
     await navigator.clipboard.writeText($("uploadResult").textContent);
     toast("上传结果已复制");
   });
+  $("addUploadAssetsBtn").addEventListener("click", () => run(addUploadResultsToAssetLibrary));
+  $("quickCreateAssetCategoryBtn").addEventListener("click", () => run(quickCreateUploadAssetCategory));
+  $("refreshAssetsBtn").addEventListener("click", () => run(refreshAssets));
+  $("createAssetCategoryBtn").addEventListener("click", () => run(() => createAssetCategory()));
+  $("deleteAssetCategoryBtn").addEventListener("click", () => run(deleteAssetCategory));
+  $("assetBackBtn").addEventListener("click", () => {
+    const category = selectedAssetCategory();
+    state.assets.selectedCategoryId = category?.parent_id || null;
+    state.assets.selectedAssetId = null;
+    renderAssetLibrary();
+  });
+  $("copySelectedAssetUrlBtn").addEventListener("click", () => run(copySelectedAssetUrl));
+  $("assetSearch").addEventListener("input", (event) => {
+    state.assets.search = event.target.value;
+    renderAssetLibrary();
+  });
+  $("addAssetUrlBtn").addEventListener("click", () => run(addAssetFromUrl));
+  $("assetUrlInput").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      run(addAssetFromUrl);
+    }
+  });
+  $("assetFileInput").addEventListener("change", (event) => {
+    const files = imageFilesFrom(event.target.files);
+    if (!files.length) return toast("请选择图片文件", true);
+    run(() => addAssetFiles(files));
+    event.target.value = "";
+  });
+  bindFileDropZone("assetDropZone", (files) => run(() => addAssetFiles(files)));
   $("refreshDocsBtn").addEventListener("click", () => run(refreshDocs));
   $("newDocBtn").addEventListener("click", newDoc);
   $("saveDocBtn").addEventListener("click", () => run(saveDoc));
@@ -1102,6 +1815,7 @@ async function boot() {
     $("healthText").textContent = "连接失败";
   }
   await run(refreshUnits);
+  await run(refreshAssets);
   await run(refreshDocs);
   await run(refreshUrlPreviewStatus);
   state.urlPreview.statusTimer = setInterval(() => run(refreshUrlPreviewStatus), 4000);
