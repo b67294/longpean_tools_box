@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tool Box</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260715-asset-rename" />
+    <link rel="stylesheet" href="/static/style.css?v=20260715-asset-groups" />
   </head>
   <body>
     <div class="app-shell">
@@ -281,6 +281,39 @@
               <div id="assetGrid" class="asset-grid hidden"></div>
             </div>
           </div>
+          <div id="assetGroupBackdrop" class="asset-group-backdrop hidden"></div>
+          <aside id="assetGroupDrawer" class="asset-group-drawer hidden" aria-label="素材组详情" aria-hidden="true">
+            <div class="panel-head">
+              <h3>素材组详情</h3>
+              <button id="closeAssetGroupDrawerBtn" aria-label="关闭素材组详情">关闭</button>
+            </div>
+            <label class="field">
+              <span>组名</span>
+              <input id="assetGroupName" />
+            </label>
+            <div class="asset-group-color-grid">
+              <label class="field">
+                <span>雪梨纸色</span>
+                <span class="color-value-field"><i id="tissueColorSwatch" class="color-swatch"></i><input id="assetGroupTissueColor" placeholder="#123456 或颜色说明" /></span>
+              </label>
+              <label class="field">
+                <span>丝带色</span>
+                <span class="color-value-field"><i id="ribbonColorSwatch" class="color-swatch"></i><input id="assetGroupRibbonColor" placeholder="#123456 或颜色说明" /></span>
+              </label>
+            </div>
+            <div class="panel-head compact-head">
+              <h4>其他属性</h4>
+              <button id="addAssetGroupFieldBtn">添加字段</button>
+            </div>
+            <div id="assetGroupCustomFields" class="asset-group-fields"></div>
+            <div class="panel-head compact-head"><h4>组内图片</h4><span id="assetGroupMemberCount" class="muted"></span></div>
+            <div id="assetGroupMembers" class="asset-group-members"></div>
+            <div class="asset-group-drawer-actions">
+              <button id="saveAssetGroupBtn" class="primary">保存修改</button>
+              <button id="dissolveAssetGroupBtn">拆散此组</button>
+              <button id="deleteAssetGroupBtn" class="danger">删除组及全部图片</button>
+            </div>
+          </aside>
         </section>
 
         <section id="view-markdown" class="view">
@@ -372,6 +405,6 @@
         </section>
       </main>
     </div>
-    <script src="/static/app.js?v=20260715-asset-rename"></script>
+    <script src="/static/app.js?v=20260715-asset-groups"></script>
   </body>
 </html>

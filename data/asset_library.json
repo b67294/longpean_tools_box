@@ -31,6 +31,15 @@
   ],
   "assets": [
     {
+      "id": "c572886b6b1f4917bff4ed1d9b4bb37d",
+      "category_id": "9d68e3d3acf24989a1e4a6710d031300",
+      "name": "白色正面",
+      "url": "https://pspk.longpean.com/24987.B0DCZP67K3d.png",
+      "preview_url": "/asset-files/771c05fa6790462e9b1a0aa7dac4e7fa.png",
+      "created_at": "2026-07-15 10:15:14",
+      "updated_at": "2026-07-15 16:26:40"
+    },
+    {
       "id": "9b26b5ea2d874acfb8d695352f25abab",
       "category_id": "e00337e75dd04450b66c3e0689a2c9d2",
       "name": "袋子线条.png",
@@ -103,15 +112,6 @@
       "updated_at": "2026-07-15 10:15:32"
     },
     {
-      "id": "c572886b6b1f4917bff4ed1d9b4bb37d",
-      "category_id": "9d68e3d3acf24989a1e4a6710d031300",
-      "name": "白色正面",
-      "url": "https://pspk.longpean.com/24987.B0DCZP67K3d.png",
-      "preview_url": "/asset-files/771c05fa6790462e9b1a0aa7dac4e7fa.png",
-      "created_at": "2026-07-15 10:15:14",
-      "updated_at": "2026-07-15 16:26:40"
-    },
-    {
       "id": "74399730203146c2bdd6e7c94bb4ed0d",
       "category_id": "9d68e3d3acf24989a1e4a6710d031300",
       "name": "粉色横版侧面",
@@ -128,6 +128,42 @@
       "preview_url": "/asset-files/2a106be868b9402f92c192036b801ca5.png",
       "created_at": "2026-07-15 10:12:24",
       "updated_at": "2026-07-15 10:12:24"
+    }
+  ],
+  "groups": [
+    {
+      "id": "e72ad5c40d83428688739b803f98f115",
+      "category_id": "9d68e3d3acf24989a1e4a6710d031300",
+      "name": "粉色测试",
+      "asset_ids": [
+        "3ce83f40fc55422ea91846a353597fd3",
+        "74399730203146c2bdd6e7c94bb4ed0d"
+      ],
+      "cover_asset_id": "3ce83f40fc55422ea91846a353597fd3",
+      "attributes": {
+        "tissue_paper_color": "",
+        "ribbon_color": ""
+      },
+      "custom_fields": [],
+      "created_at": "2026-07-15 16:52:25",
+      "updated_at": "2026-07-15 16:52:51"
+    },
+    {
+      "id": "32165bfe60014f05b98d2af10cc919f8",
+      "category_id": "9d68e3d3acf24989a1e4a6710d031300",
+      "name": "白色测试",
+      "asset_ids": [
+        "bb652303ccbf4c66814118a13c42f6cd",
+        "c572886b6b1f4917bff4ed1d9b4bb37d"
+      ],
+      "cover_asset_id": "c572886b6b1f4917bff4ed1d9b4bb37d",
+      "attributes": {
+        "tissue_paper_color": "",
+        "ribbon_color": ""
+      },
+      "custom_fields": [],
+      "created_at": "2026-07-15 16:52:03",
+      "updated_at": "2026-07-15 16:52:20"
     }
   ]
 }

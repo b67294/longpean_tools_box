@@ -25,10 +25,14 @@ const state = {
   assets: {
     categories: [],
     items: [],
+    groups: [],
     selectedCategoryId: null,
     selectedAssetId: null,
     selectedAssetIds: [],
     search: "",
+    openGroupId: null,
+    groupDirty: false,
+    groupDropTimer: null,
   },
   urlPreview: {
     statusTimer: null,
@@ -597,6 +601,7 @@ async function addUploadResultsToAssetLibrary() {
 function applyAssetLibrary(data = {}) {
   state.assets.categories = data.categories || [];
   state.assets.items = data.assets || [];
+  state.assets.groups = data.groups || [];
   if (
     state.assets.selectedCategoryId &&
     !state.assets.categories.some((category) => category.id === state.assets.selectedCategoryId)
@@ -607,6 +612,10 @@ function applyAssetLibrary(data = {}) {
   state.assets.selectedAssetIds = state.assets.selectedAssetIds.filter((assetId) => existingAssetIds.has(assetId));
   if (state.assets.selectedAssetId && !existingAssetIds.has(state.assets.selectedAssetId)) {
     state.assets.selectedAssetId = null;
+  }
+  if (state.assets.openGroupId && !state.assets.groups.some((group) => group.id === state.assets.openGroupId)) {
+    state.assets.openGroupId = null;
+    hideAssetGroupDrawer();
   }
   renderUploadAssetCategoryOptions();
 }
@@ -772,11 +781,14 @@ function renderAssetGrid() {
   grid.innerHTML = "";
   const category = selectedAssetCategory();
   if (!category) return;
-  const assets = getFilteredAssets(category.id);
-  if (!assets.length) {
+  const groupedIds = groupedAssetIdSet();
+  const assets = getFilteredAssets(category.id).filter((asset) => !groupedIds.has(asset.id));
+  const groups = getFilteredAssetGroups(category.id);
+  if (!assets.length && !groups.length) {
     grid.innerHTML = '<div class="empty asset-empty">这个分类里还没有素材</div>';
     return;
   }
+  groups.forEach((group) => grid.appendChild(createAssetGroupCard(group)));
   assets.forEach((asset) => {
     const card = document.createElement("div");
     const selectedIds = selectedAssetIdSet();
@@ -820,6 +832,7 @@ function renderAssetGrid() {
     card.addEventListener("dragend", () => {
       card.classList.remove("dragging");
     });
+    bindAssetCardGroupDrop(card, { assetId: asset.id });
     card.querySelector(".copy-asset-url").addEventListener("click", async () => {
       if (!asset.url) {
         toast("这个素材还没有 URL", true);
@@ -833,6 +846,148 @@ function renderAssetGrid() {
     card.querySelector(".delete-asset").addEventListener("click", () => run(() => deleteAsset(asset.id)));
     grid.appendChild(card);
   });
+}
+
+function readDraggedAssetIds(event) {
+  try {
+    return JSON.parse(event.dataTransfer.getData("application/x-toolbox-assets") || "[]");
+  } catch (_error) {
+    return [];
+  }
+}
+
+function bindAssetCardGroupDrop(card, target) {
+  const clearReady = () => {
+    if (state.assets.groupDropTimer) clearTimeout(state.assets.groupDropTimer);
+    state.assets.groupDropTimer = null;
+    card.classList.remove("group-drop-ready");
+    card.removeAttribute("data-drop-label");
+  };
+  card.addEventListener("dragover", (event) => {
+    if (!Array.from(event.dataTransfer.types).includes("application/x-toolbox-assets")) return;
+    if (Array.from(event.dataTransfer.types).includes("application/x-toolbox-group")) return;
+    event.preventDefault();
+    if (state.assets.groupDropTimer || card.classList.contains("group-drop-ready")) return;
+    state.assets.groupDropTimer = setTimeout(() => {
+      state.assets.groupDropTimer = null;
+      card.dataset.dropLabel = target.groupId ? "松开后加入此组" : "松开后组成一组";
+      card.classList.add("group-drop-ready");
+    }, 400);
+  });
+  card.addEventListener("dragleave", (event) => {
+    if (!card.contains(event.relatedTarget)) clearReady();
+  });
+  card.addEventListener("drop", (event) => {
+    event.preventDefault();
+    const ready = card.classList.contains("group-drop-ready");
+    const assetIds = readDraggedAssetIds(event);
+    clearReady();
+    if (!ready || !assetIds.length) return;
+    if (target.groupId) run(() => addMembersToAssetGroup(target.groupId, assetIds));
+    else run(() => createAssetGroupFromDrop(target.assetId, assetIds));
+  });
+}
+
+function createAssetGroupCard(group) {
+  const card = document.createElement("div");
+  card.className = "asset-card asset-group-card";
+  card.draggable = true;
+  const members = (group.asset_ids || []).map(assetById).filter(Boolean);
+  const cover = assetById(group.cover_asset_id) || members[0];
+  const previews = [...members.filter((asset) => asset.id !== cover?.id).slice(0, 2), cover].filter(Boolean);
+  const attrs = group.attributes || {};
+  card.innerHTML = `
+    <div class="asset-group-stack"></div>
+    <div class="asset-card-body">
+      <div class="asset-card-name"></div>
+      <div class="asset-group-attributes"></div>
+      <div class="actions"><button class="open-asset-group">查看与编辑</button></div>
+    </div>`;
+  const stack = card.querySelector(".asset-group-stack");
+  previews.forEach((asset) => {
+    const image = document.createElement("img");
+    image.src = asset.preview_url || asset.url;
+    image.alt = asset.name;
+    image.loading = "lazy";
+    stack.appendChild(image);
+  });
+  const count = document.createElement("span");
+  count.className = "asset-group-count";
+  count.textContent = `共 ${members.length} 张`;
+  stack.appendChild(count);
+  card.querySelector(".asset-card-name").textContent = group.name;
+  const attributeNode = card.querySelector(".asset-group-attributes");
+  [["雪梨纸", attrs.tissue_paper_color], ["丝带", attrs.ribbon_color]].filter(([, value]) => value).forEach(([label, value]) => {
+    const chip = document.createElement("span");
+    chip.textContent = `${label}: ${value}`;
+    attributeNode.appendChild(chip);
+  });
+  if (!attributeNode.children.length) attributeNode.innerHTML = "<span>尚未填写组属性</span>";
+  card.querySelector(".open-asset-group").addEventListener("click", (event) => {
+    event.stopPropagation();
+    openAssetGroupDrawer(group.id);
+  });
+  card.addEventListener("click", () => openAssetGroupDrawer(group.id));
+  card.addEventListener("dragstart", (event) => {
+    event.stopPropagation();
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-toolbox-assets", JSON.stringify(group.asset_ids || []));
+    event.dataTransfer.setData("application/x-toolbox-group", group.id);
+    event.dataTransfer.setData("text/plain", `${members.length} 个组内素材`);
+    card.classList.add("dragging");
+  });
+  card.addEventListener("dragend", () => card.classList.remove("dragging"));
+  bindAssetCardGroupDrop(card, { groupId: group.id });
+  return card;
+}
+
+async function createAssetGroupFromDrop(targetAssetId, draggedIds) {
+  const assetIds = Array.from(new Set([...draggedIds.filter((id) => id !== targetAssetId), targetAssetId]));
+  if (assetIds.length < 2) return toast("请把图片拖到另一张图片上", true);
+  const data = await api("/api/assets/groups/create", {
+    category_id: state.assets.selectedCategoryId,
+    asset_ids: assetIds,
+    cover_asset_id: targetAssetId,
+  });
+  applyAssetLibrary(data);
+  state.assets.selectedAssetIds = [];
+  renderAssetLibrary();
+  openAssetGroupDrawer(data.group_id);
+  toast("素材组已创建");
+}
+
+async function addMembersToAssetGroup(groupId, assetIds) {
+  const data = await api("/api/assets/groups/add-members", { id: groupId, asset_ids: assetIds });
+  applyAssetLibrary(data);
+  state.assets.selectedAssetIds = [];
+  renderAssetLibrary();
+  openAssetGroupDrawer(groupId);
+  toast("图片已加入素材组");
+}
+
+function assetById(assetId) {
+  return state.assets.items.find((asset) => asset.id === assetId) || null;
+}
+
+function assetGroupById(groupId) {
+  return state.assets.groups.find((group) => group.id === groupId) || null;
+}
+
+function groupedAssetIdSet() {
+  return new Set(state.assets.groups.flatMap((group) => group.asset_ids || []));
+}
+
+function groupSearchText(group) {
+  const members = (group.asset_ids || []).map(assetById).filter(Boolean);
+  const attrs = group.attributes || {};
+  const fields = (group.custom_fields || []).flatMap((field) => [field.key, field.value]);
+  return [group.name, attrs.tissue_paper_color, attrs.ribbon_color, ...fields, ...members.flatMap((asset) => [asset.name, asset.url, asset.preview_url])]
+    .join(" ").toLowerCase();
+}
+
+function getFilteredAssetGroups(categoryId) {
+  const keyword = state.assets.search.trim().toLowerCase();
+  return state.assets.groups.filter((group) => group.category_id === categoryId && (!keyword || groupSearchText(group).includes(keyword)));
 }
 
 function startAssetRename(asset, nameNode) {
@@ -879,6 +1034,144 @@ async function renameAsset(asset, name) {
   applyAssetLibrary(data);
   renderAssetLibrary();
   toast("素材名称已更新");
+}
+
+function updateColorSwatch(inputId, swatchId) {
+  const value = $(inputId).value.trim();
+  $(swatchId).style.background = /^#[0-9a-f]{6}$/i.test(value) ? value : "";
+}
+
+function appendAssetGroupCustomField(key = "", value = "") {
+  const row = document.createElement("div");
+  row.className = "asset-group-field-row";
+  row.innerHTML = '<input class="group-field-key" placeholder="字段名，如袋身色" /><input class="group-field-value" placeholder="值" /><button aria-label="删除字段">删除</button>';
+  row.querySelector(".group-field-key").value = key;
+  row.querySelector(".group-field-value").value = value;
+  row.querySelector("button").addEventListener("click", () => {
+    row.remove();
+    state.assets.groupDirty = true;
+  });
+  row.querySelectorAll("input").forEach((input) => input.addEventListener("input", () => { state.assets.groupDirty = true; }));
+  $("assetGroupCustomFields").appendChild(row);
+}
+
+function renderAssetGroupMembers(group) {
+  const box = $("assetGroupMembers");
+  box.innerHTML = "";
+  const members = (group.asset_ids || []).map(assetById).filter(Boolean);
+  $("assetGroupMemberCount").textContent = `${members.length} 张`;
+  members.forEach((asset) => {
+    const row = document.createElement("div");
+    row.className = "asset-group-member";
+    row.innerHTML = `
+      <img alt="" />
+      <div class="asset-group-member-info"><div class="asset-group-member-name"></div><div class="asset-group-member-url"></div></div>
+      <div class="asset-group-member-actions"><button class="copy-member-url">复制 URL</button><button class="cover-member">设为封面</button><button class="remove-member">移出组</button></div>`;
+    row.querySelector("img").src = asset.preview_url || asset.url;
+    row.querySelector("img").alt = asset.name;
+    row.querySelector(".asset-group-member-name").textContent = `${asset.name}${group.cover_asset_id === asset.id ? " · 当前封面" : ""}`;
+    row.querySelector(".asset-group-member-url").textContent = asset.url || "本地图片，URL 为空";
+    row.querySelector(".copy-member-url").disabled = !asset.url;
+    row.querySelector(".copy-member-url").addEventListener("click", async () => {
+      await navigator.clipboard.writeText(asset.url);
+      toast("图片 URL 已复制");
+    });
+    row.querySelector(".cover-member").disabled = group.cover_asset_id === asset.id;
+    row.querySelector(".cover-member").addEventListener("click", () => run(() => setAssetGroupCover(group, asset.id)));
+    row.querySelector(".remove-member").addEventListener("click", () => run(() => removeAssetGroupMember(group, asset.id)));
+    box.appendChild(row);
+  });
+}
+
+function openAssetGroupDrawer(groupId) {
+  const group = assetGroupById(groupId);
+  if (!group) return;
+  state.assets.openGroupId = groupId;
+  state.assets.groupDirty = false;
+  $("assetGroupName").value = group.name || "";
+  $("assetGroupTissueColor").value = group.attributes?.tissue_paper_color || "";
+  $("assetGroupRibbonColor").value = group.attributes?.ribbon_color || "";
+  updateColorSwatch("assetGroupTissueColor", "tissueColorSwatch");
+  updateColorSwatch("assetGroupRibbonColor", "ribbonColorSwatch");
+  $("assetGroupCustomFields").innerHTML = "";
+  (group.custom_fields || []).forEach((field) => appendAssetGroupCustomField(field.key, field.value));
+  renderAssetGroupMembers(group);
+  $("assetGroupDrawer").classList.remove("hidden");
+  $("assetGroupBackdrop").classList.remove("hidden");
+  $("assetGroupDrawer").setAttribute("aria-hidden", "false");
+}
+
+function hideAssetGroupDrawer(force = false) {
+  if (!force && state.assets.groupDirty && !window.confirm("有尚未保存的组属性，确定关闭吗？")) return;
+  state.assets.openGroupId = null;
+  state.assets.groupDirty = false;
+  $("assetGroupDrawer").classList.add("hidden");
+  $("assetGroupBackdrop").classList.add("hidden");
+  $("assetGroupDrawer").setAttribute("aria-hidden", "true");
+}
+
+function assetGroupFormPayload(group) {
+  return {
+    id: group.id,
+    name: $("assetGroupName").value.trim(),
+    cover_asset_id: group.cover_asset_id,
+    tissue_paper_color: $("assetGroupTissueColor").value.trim(),
+    ribbon_color: $("assetGroupRibbonColor").value.trim(),
+    custom_fields: Array.from($("assetGroupCustomFields").querySelectorAll(".asset-group-field-row")).map((row) => ({
+      key: row.querySelector(".group-field-key").value.trim(),
+      value: row.querySelector(".group-field-value").value.trim(),
+    })).filter((field) => field.key),
+  };
+}
+
+async function saveAssetGroup() {
+  const group = assetGroupById(state.assets.openGroupId);
+  if (!group) return;
+  const data = await api("/api/assets/groups/update", assetGroupFormPayload(group));
+  applyAssetLibrary(data);
+  state.assets.groupDirty = false;
+  renderAssetLibrary();
+  openAssetGroupDrawer(group.id);
+  toast("素材组已保存");
+}
+
+async function setAssetGroupCover(group, assetId) {
+  const payload = assetGroupFormPayload(group);
+  payload.cover_asset_id = assetId;
+  const data = await api("/api/assets/groups/update", payload);
+  applyAssetLibrary(data);
+  renderAssetLibrary();
+  openAssetGroupDrawer(group.id);
+  toast("组封面已更新");
+}
+
+async function removeAssetGroupMember(group, assetId) {
+  const data = await api("/api/assets/groups/remove-members", { id: group.id, asset_ids: [assetId] });
+  applyAssetLibrary(data);
+  renderAssetLibrary();
+  if (assetGroupById(group.id)) openAssetGroupDrawer(group.id);
+  else hideAssetGroupDrawer(true);
+  toast(assetGroupById(group.id) ? "图片已移出组" : "成员不足两张，素材组已自动拆散");
+}
+
+async function dissolveAssetGroup() {
+  const group = assetGroupById(state.assets.openGroupId);
+  if (!group || !window.confirm(`确定拆散《${group.name}》吗？图片不会被删除。`)) return;
+  const data = await api("/api/assets/groups/dissolve", { id: group.id });
+  hideAssetGroupDrawer(true);
+  applyAssetLibrary(data);
+  renderAssetLibrary();
+  toast("素材组已拆散");
+}
+
+async function deleteAssetGroupWithAssets() {
+  const group = assetGroupById(state.assets.openGroupId);
+  if (!group || !window.confirm(`危险操作：确定删除《${group.name}》及组内全部 ${group.asset_ids.length} 张图片吗？此操作不可撤销。`)) return;
+  const data = await api("/api/assets/groups/delete-with-assets", { id: group.id });
+  hideAssetGroupDrawer(true);
+  applyAssetLibrary(data);
+  renderAssetLibrary();
+  toast("素材组及组内图片已删除");
 }
 
 function renderAssetLibrary() {
@@ -1761,6 +2054,25 @@ function bindEvents() {
     event.target.value = "";
   });
   bindFileDropZone("assetDropZone", (files) => run(() => addAssetFiles(files)));
+  $("closeAssetGroupDrawerBtn").addEventListener("click", () => hideAssetGroupDrawer());
+  $("assetGroupBackdrop").addEventListener("click", () => hideAssetGroupDrawer());
+  $("addAssetGroupFieldBtn").addEventListener("click", () => {
+    appendAssetGroupCustomField();
+    state.assets.groupDirty = true;
+  });
+  ["assetGroupName", "assetGroupTissueColor", "assetGroupRibbonColor"].forEach((id) => {
+    $(id).addEventListener("input", () => {
+      state.assets.groupDirty = true;
+      if (id === "assetGroupTissueColor") updateColorSwatch(id, "tissueColorSwatch");
+      if (id === "assetGroupRibbonColor") updateColorSwatch(id, "ribbonColorSwatch");
+    });
+  });
+  $("saveAssetGroupBtn").addEventListener("click", () => run(saveAssetGroup));
+  $("dissolveAssetGroupBtn").addEventListener("click", () => run(dissolveAssetGroup));
+  $("deleteAssetGroupBtn").addEventListener("click", () => run(deleteAssetGroupWithAssets));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !$("assetGroupDrawer").classList.contains("hidden")) hideAssetGroupDrawer();
+  });
   $("refreshDocsBtn").addEventListener("click", () => run(refreshDocs));
   $("newDocBtn").addEventListener("click", newDoc);
   $("saveDocBtn").addEventListener("click", () => run(saveDoc));

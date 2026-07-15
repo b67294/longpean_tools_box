@@ -124,6 +124,22 @@ class AssetMovePayload(BaseModel):
     asset_ids: list[str]
 
 
+class AssetGroupFieldPayload(BaseModel):
+    key: str = ""
+    value: str = ""
+
+
+class AssetGroupPayload(BaseModel):
+    id: str = ""
+    category_id: str = ""
+    name: str = ""
+    asset_ids: list[str] = []
+    cover_asset_id: str = ""
+    tissue_paper_color: str = ""
+    ribbon_color: str = ""
+    custom_fields: list[AssetGroupFieldPayload] = []
+
+
 class ImagePayload(BaseModel):
     file_name: str = "image.png"
     data_url: str
@@ -375,11 +391,11 @@ def markdown_doc_summary(doc: dict[str, str]) -> dict[str, str]:
     return {**doc, "size": str(size)}
 
 
-def default_asset_library() -> dict[str, list[dict[str, str]]]:
-    return {"categories": [], "assets": []}
+def default_asset_library() -> dict[str, Any]:
+    return {"categories": [], "assets": [], "groups": []}
 
 
-def load_asset_library() -> dict[str, list[dict[str, str]]]:
+def load_asset_library() -> dict[str, Any]:
     ensure_data_files()
     try:
         data = json.loads(ASSET_LIBRARY_STORE.read_text(encoding="utf-8"))
@@ -389,6 +405,7 @@ def load_asset_library() -> dict[str, list[dict[str, str]]]:
         return default_asset_library()
     categories = []
     assets = []
+    groups = []
     for item in data.get("categories", []):
         if not isinstance(item, dict):
             continue
@@ -430,18 +447,59 @@ def load_asset_library() -> dict[str, list[dict[str, str]]]:
                 "updated_at": str(item.get("updated_at", "")),
             }
         )
+    known_assets = {item["id"]: item for item in assets}
+    grouped_asset_ids: set[str] = set()
+    for item in data.get("groups", []):
+        if not isinstance(item, dict):
+            continue
+        group_id = str(item.get("id", "")).strip()
+        category_id = str(item.get("category_id", "")).strip()
+        asset_ids = []
+        for raw_id in item.get("asset_ids", []):
+            asset_id = str(raw_id).strip()
+            asset = known_assets.get(asset_id)
+            if asset and asset["category_id"] == category_id and asset_id not in grouped_asset_ids and asset_id not in asset_ids:
+                asset_ids.append(asset_id)
+        if not group_id or category_id not in known_categories or len(asset_ids) < 2:
+            continue
+        grouped_asset_ids.update(asset_ids)
+        attributes = item.get("attributes", {}) if isinstance(item.get("attributes"), dict) else {}
+        custom_fields = []
+        for field in item.get("custom_fields", []):
+            if not isinstance(field, dict):
+                continue
+            key = str(field.get("key", "")).strip()
+            value = str(field.get("value", "")).strip()
+            if key:
+                custom_fields.append({"key": key, "value": value})
+        cover_asset_id = str(item.get("cover_asset_id", "")).strip()
+        groups.append({
+            "id": group_id,
+            "category_id": category_id,
+            "name": str(item.get("name", "")).strip() or "未命名素材组",
+            "asset_ids": asset_ids,
+            "cover_asset_id": cover_asset_id if cover_asset_id in asset_ids else asset_ids[0],
+            "attributes": {
+                "tissue_paper_color": str(attributes.get("tissue_paper_color", "")).strip(),
+                "ribbon_color": str(attributes.get("ribbon_color", "")).strip(),
+            },
+            "custom_fields": custom_fields,
+            "created_at": str(item.get("created_at", "")),
+            "updated_at": str(item.get("updated_at", "")),
+        })
     return {
         "categories": sorted(categories, key=lambda item: item["name"].lower()),
         "assets": sorted(assets, key=lambda item: item["updated_at"] or item["created_at"], reverse=True),
+        "groups": sorted(groups, key=lambda item: item["updated_at"] or item["created_at"], reverse=True),
     }
 
 
-def save_asset_library(library: dict[str, list[dict[str, str]]]) -> None:
+def save_asset_library(library: dict[str, Any]) -> None:
     ensure_data_files()
     ASSET_LIBRARY_STORE.write_text(json.dumps(library, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def asset_library_with_counts() -> dict[str, list[dict[str, str]]]:
+def asset_library_with_counts() -> dict[str, Any]:
     library = load_asset_library()
     counts: dict[str, int] = {}
     child_counts: dict[str, int] = {}
@@ -459,7 +517,31 @@ def asset_library_with_counts() -> dict[str, list[dict[str, str]]]:
         }
         for item in library["categories"]
     ]
-    return {"categories": categories, "assets": library["assets"]}
+    return {"categories": categories, "assets": library["assets"], "groups": library["groups"]}
+
+
+def cleanup_asset_groups(library: dict[str, Any]) -> None:
+    asset_by_id = {item["id"]: item for item in library["assets"]}
+    cleaned = []
+    claimed: set[str] = set()
+    for group in library.get("groups", []):
+        category_id = group.get("category_id", "")
+        asset_ids = [
+            asset_id for asset_id in group.get("asset_ids", [])
+            if asset_id not in claimed and asset_id in asset_by_id and asset_by_id[asset_id]["category_id"] == category_id
+        ]
+        if len(asset_ids) < 2:
+            continue
+        group["asset_ids"] = asset_ids
+        if group.get("cover_asset_id") not in asset_ids:
+            group["cover_asset_id"] = asset_ids[0]
+        claimed.update(asset_ids)
+        cleaned.append(group)
+    library["groups"] = cleaned
+
+
+def asset_group_by_id(library: dict[str, Any], group_id: str) -> dict[str, Any] | None:
+    return next((group for group in library.get("groups", []) if group["id"] == group_id), None)
 
 
 def now_text() -> str:
@@ -1150,6 +1232,7 @@ def delete_asset_category(payload: AssetCategoryPayload) -> dict[str, Any]:
                 changed = True
     library["categories"] = [item for item in library["categories"] if item["id"] not in delete_ids]
     library["assets"] = [item for item in library["assets"] if item["category_id"] not in delete_ids]
+    library["groups"] = [item for item in library["groups"] if item["category_id"] not in delete_ids]
     save_asset_library(library)
     return asset_library_with_counts()
 
@@ -1229,6 +1312,9 @@ def delete_asset(payload: AssetItemPayload) -> dict[str, Any]:
     asset_id = payload.id.strip()
     library = load_asset_library()
     library["assets"] = [item for item in library["assets"] if item["id"] != asset_id]
+    for group in library["groups"]:
+        group["asset_ids"] = [item for item in group["asset_ids"] if item != asset_id]
+    cleanup_asset_groups(library)
     save_asset_library(library)
     return asset_library_with_counts()
 
@@ -1265,15 +1351,135 @@ def move_assets(payload: AssetMovePayload) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="目标文件夹不存在")
     timestamp = now_text()
     moved_count = 0
+    for group in library["groups"]:
+        selected_members = [asset_id for asset_id in group["asset_ids"] if asset_id in asset_ids]
+        if not selected_members:
+            continue
+        if len(selected_members) == len(group["asset_ids"]):
+            group["category_id"] = category_id
+            group["updated_at"] = timestamp
+        else:
+            group["asset_ids"] = [asset_id for asset_id in group["asset_ids"] if asset_id not in asset_ids]
+            group["updated_at"] = timestamp
     for item in library["assets"]:
         if item["id"] in asset_ids and item["category_id"] != category_id:
             item["category_id"] = category_id
             item["updated_at"] = timestamp
             moved_count += 1
+    cleanup_asset_groups(library)
     save_asset_library(library)
     data = asset_library_with_counts()
     data["moved_count"] = moved_count
     return data
+
+
+@app.post("/api/assets/groups/create")
+def create_asset_group(payload: AssetGroupPayload) -> dict[str, Any]:
+    library = load_asset_library()
+    category_id = payload.category_id.strip()
+    if not any(item["id"] == category_id for item in library["categories"]):
+        raise HTTPException(status_code=400, detail="请选择有效的素材分类")
+    requested_ids = list(dict.fromkeys(asset_id.strip() for asset_id in payload.asset_ids if asset_id.strip()))
+    grouped_ids = {asset_id for group in library["groups"] for asset_id in group["asset_ids"]}
+    asset_by_id = {item["id"]: item for item in library["assets"]}
+    asset_ids = [asset_id for asset_id in requested_ids if asset_id not in grouped_ids and asset_by_id.get(asset_id, {}).get("category_id") == category_id]
+    if len(asset_ids) < 2:
+        raise HTTPException(status_code=400, detail="至少需要两张同分类且未分组的图片")
+    timestamp = now_text()
+    cover_asset_id = payload.cover_asset_id.strip()
+    group = {
+        "id": uuid.uuid4().hex,
+        "category_id": category_id,
+        "name": payload.name.strip() or "未命名素材组",
+        "asset_ids": asset_ids,
+        "cover_asset_id": cover_asset_id if cover_asset_id in asset_ids else asset_ids[-1],
+        "attributes": {"tissue_paper_color": "", "ribbon_color": ""},
+        "custom_fields": [],
+        "created_at": timestamp,
+        "updated_at": timestamp,
+    }
+    library["groups"].append(group)
+    save_asset_library(library)
+    data = asset_library_with_counts()
+    data["group_id"] = group["id"]
+    return data
+
+
+@app.post("/api/assets/groups/update")
+def update_asset_group(payload: AssetGroupPayload) -> dict[str, Any]:
+    library = load_asset_library()
+    group = asset_group_by_id(library, payload.id.strip())
+    if not group:
+        raise HTTPException(status_code=404, detail="素材组不存在")
+    group["name"] = payload.name.strip() or group["name"]
+    cover_asset_id = payload.cover_asset_id.strip()
+    if cover_asset_id in group["asset_ids"]:
+        group["cover_asset_id"] = cover_asset_id
+    group["attributes"] = {
+        "tissue_paper_color": payload.tissue_paper_color.strip(),
+        "ribbon_color": payload.ribbon_color.strip(),
+    }
+    group["custom_fields"] = [
+        {"key": field.key.strip(), "value": field.value.strip()}
+        for field in payload.custom_fields if field.key.strip()
+    ]
+    group["updated_at"] = now_text()
+    save_asset_library(library)
+    return asset_library_with_counts()
+
+
+@app.post("/api/assets/groups/add-members")
+def add_asset_group_members(payload: AssetGroupPayload) -> dict[str, Any]:
+    library = load_asset_library()
+    group = asset_group_by_id(library, payload.id.strip())
+    if not group:
+        raise HTTPException(status_code=404, detail="素材组不存在")
+    grouped_ids = {asset_id for item in library["groups"] for asset_id in item["asset_ids"]}
+    asset_by_id = {item["id"]: item for item in library["assets"]}
+    for raw_id in payload.asset_ids:
+        asset_id = raw_id.strip()
+        if asset_id not in grouped_ids and asset_by_id.get(asset_id, {}).get("category_id") == group["category_id"]:
+            group["asset_ids"].append(asset_id)
+            grouped_ids.add(asset_id)
+    group["updated_at"] = now_text()
+    save_asset_library(library)
+    return asset_library_with_counts()
+
+
+@app.post("/api/assets/groups/remove-members")
+def remove_asset_group_members(payload: AssetGroupPayload) -> dict[str, Any]:
+    library = load_asset_library()
+    group = asset_group_by_id(library, payload.id.strip())
+    if not group:
+        raise HTTPException(status_code=404, detail="素材组不存在")
+    remove_ids = {asset_id.strip() for asset_id in payload.asset_ids}
+    group["asset_ids"] = [asset_id for asset_id in group["asset_ids"] if asset_id not in remove_ids]
+    group["updated_at"] = now_text()
+    cleanup_asset_groups(library)
+    save_asset_library(library)
+    return asset_library_with_counts()
+
+
+@app.post("/api/assets/groups/dissolve")
+def dissolve_asset_group(payload: AssetGroupPayload) -> dict[str, Any]:
+    library = load_asset_library()
+    group_id = payload.id.strip()
+    library["groups"] = [group for group in library["groups"] if group["id"] != group_id]
+    save_asset_library(library)
+    return asset_library_with_counts()
+
+
+@app.post("/api/assets/groups/delete-with-assets")
+def delete_asset_group_with_assets(payload: AssetGroupPayload) -> dict[str, Any]:
+    library = load_asset_library()
+    group = asset_group_by_id(library, payload.id.strip())
+    if not group:
+        raise HTTPException(status_code=404, detail="素材组不存在")
+    delete_ids = set(group["asset_ids"])
+    library["assets"] = [asset for asset in library["assets"] if asset["id"] not in delete_ids]
+    library["groups"] = [item for item in library["groups"] if item["id"] != group["id"]]
+    save_asset_library(library)
+    return asset_library_with_counts()
 
 
 @app.post("/api/image/white-transparent")

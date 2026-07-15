@@ -550,6 +550,77 @@ textarea:focus {
   opacity: 0.72;
 }
 
+.asset-card.group-drop-ready {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.18);
+}
+
+.asset-card.group-drop-ready::after {
+  content: attr(data-drop-label);
+  display: block;
+  padding: 7px 10px;
+  background: var(--brand);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.asset-group-card {
+  cursor: pointer;
+}
+
+.asset-group-stack {
+  position: relative;
+  height: 150px;
+  background: #f3f7fb;
+  overflow: hidden;
+}
+
+.asset-group-stack img {
+  position: absolute;
+  inset: 10px 14px;
+  width: calc(100% - 28px);
+  height: calc(100% - 20px);
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 3px 8px rgba(16, 24, 32, 0.13);
+}
+
+.asset-group-stack img:nth-child(1) { transform: rotate(-3deg) translate(-4px, 2px); }
+.asset-group-stack img:nth-child(2) { transform: rotate(3deg) translate(5px, 1px); }
+.asset-group-stack img:last-of-type { transform: none; }
+
+.asset-group-count {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 2;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(16, 24, 32, 0.78);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.asset-group-attributes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-height: 24px;
+}
+
+.asset-group-attributes span {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #eef4f7;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .asset-thumb-button {
   position: relative;
   width: 100%;
@@ -619,6 +690,101 @@ textarea:focus {
   border-radius: 8px;
   background: #f8fbfd;
 }
+
+.asset-group-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(16, 24, 32, 0.3);
+}
+
+.asset-group-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 41;
+  width: min(520px, 92vw);
+  padding: 20px;
+  overflow-y: auto;
+  background: #fff;
+  box-shadow: -12px 0 30px rgba(16, 24, 32, 0.18);
+}
+
+.asset-group-color-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.color-value-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.color-value-field input { flex: 1; }
+
+.color-swatch {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: repeating-linear-gradient(45deg, #eee, #eee 5px, #fff 5px, #fff 10px);
+}
+
+.compact-head { margin-top: 16px; }
+.compact-head h4 { margin: 0; }
+
+.asset-group-fields,
+.asset-group-members {
+  display: grid;
+  gap: 8px;
+}
+
+.asset-group-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr auto;
+  gap: 8px;
+}
+
+.asset-group-member {
+  display: grid;
+  grid-template-columns: 64px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.asset-group-member img {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  border-radius: 6px;
+  background: #f3f7fb;
+}
+
+.asset-group-member-info { min-width: 0; }
+.asset-group-member-name { font-weight: 700; overflow-wrap: anywhere; }
+.asset-group-member-url { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; max-height: 32px; overflow: hidden; }
+.asset-group-member-actions { display: grid; gap: 5px; }
+
+.asset-group-drawer-actions {
+  position: sticky;
+  bottom: -20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px -20px -20px;
+  padding: 14px 20px;
+  border-top: 1px solid var(--line);
+  background: #fff;
+}
+
+button.danger { color: #b42318; border-color: #f2b8b5; }
 
 .md-list-panel,
 .md-main-panel {
@@ -976,4 +1142,12 @@ canvas.checker {
   .toast {
     max-width: 100%;
   }
+}
+
+@media (max-width: 640px) {
+  .asset-group-drawer { width: 100vw; }
+  .asset-group-color-grid { grid-template-columns: 1fr; }
+  .asset-group-member { grid-template-columns: 54px 1fr; }
+  .asset-group-member img { width: 54px; height: 54px; }
+  .asset-group-member-actions { grid-column: 1 / -1; grid-template-columns: repeat(3, 1fr); }
 }
