@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tool Box</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260715-asset-groups" />
+    <link rel="stylesheet" href="/static/style.css?v=20260715-wiki-json" />
   </head>
   <body>
     <div class="app-shell">
@@ -19,6 +19,7 @@
         <nav class="nav">
           <button class="nav-item active" data-view="prompt">ComfyUI 下发</button>
           <button class="nav-item" data-view="json">JSON 替换</button>
+          <button class="nav-item" data-view="wiki-json">Wiki JSON</button>
           <button class="nav-item" data-view="image">图片透明化</button>
           <button class="nav-item" data-view="upload">批量上传</button>
           <button class="nav-item" data-view="assets">素材库</button>
@@ -151,6 +152,76 @@
               </div>
               <textarea id="jsonEditor" class="code huge" spellcheck="false" placeholder="粘贴或从模板库加载 JSON"></textarea>
               <pre id="jsonLog" class="log short"></pre>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-wiki-json" class="view">
+          <div class="panel wiki-fetch-panel">
+            <div class="panel-head">
+              <h3>从 Wiki 拉取 JSON</h3>
+              <div class="actions">
+                <button id="fetchWikiJsonBtn" class="primary">拉取 Wiki</button>
+                <button id="writebackWikiJsonBtn" disabled>写回 Wiki</button>
+              </div>
+            </div>
+            <div class="wiki-fetch-toolbar">
+              <label class="field wiki-input-field">
+                <span>Wiki URL 或文档 ID</span>
+                <input id="wikiJsonInput" placeholder="例如：7435 或 https://wiki.longpean.com/document/index?document_id=7435" />
+              </label>
+              <label class="field wiki-candidate-field">
+                <span>JSON 候选</span>
+                <select id="wikiJsonCandidate" disabled>
+                  <option value="">拉取后选择</option>
+                </select>
+              </label>
+            </div>
+            <div id="wikiJsonMeta" class="wiki-meta">尚未拉取 Wiki 文档</div>
+          </div>
+
+          <div class="wiki-json-layout">
+            <div class="panel rules-panel">
+              <div class="panel-head">
+                <h3>规则</h3>
+                <div class="actions">
+                  <button id="wikiExtractPlaceholderRulesBtn">提取占位符规则</button>
+                  <button id="wikiExtractSourceRulesBtn">提取源数据</button>
+                </div>
+              </div>
+              <label class="field grow">
+                <span>源数据规则</span>
+                <textarea id="wikiSourceRules" class="code small" spellcheck="false" placeholder="每行：节点ID,字段名,真实内容"></textarea>
+              </label>
+              <label class="field grow">
+                <span>占位符规则</span>
+                <textarea id="wikiPlaceholderRules" class="code small" spellcheck="false" placeholder="每行：节点ID,字段名,#{placeholder}"></textarea>
+              </label>
+            </div>
+
+            <div class="panel editor-panel">
+              <div class="panel-head">
+                <h3>Wiki API JSON</h3>
+                <div class="actions">
+                  <button id="wikiJsonFormatBtn">格式化</button>
+                  <button id="wikiApplySourceRulesBtn">写入源数据</button>
+                  <button id="wikiApplyPlaceholderRulesBtn">写入占位符</button>
+                  <button id="wikiRenameSaveBtn">SaveImage 改 saveFile</button>
+                </div>
+              </div>
+              <div class="post-toolbar">
+                <label class="field">
+                  <span>公司 ComfyUI 地址</span>
+                  <input id="wikiJsonComfyUrl" value="http://117.50.174.91:6070/" />
+                </label>
+                <label class="field timeout-field">
+                  <span>超时秒数</span>
+                  <input id="wikiJsonComfyTimeout" type="number" min="1" max="120" value="12" />
+                </label>
+                <button id="postWikiJsonComfyBtn" class="primary">下发到 ComfyUI</button>
+              </div>
+              <textarea id="wikiJsonEditor" class="code huge" spellcheck="false" placeholder="输入 Wiki URL 或文档 ID 后点击“拉取 Wiki”"></textarea>
+              <pre id="wikiJsonLog" class="log short"></pre>
             </div>
           </div>
         </section>
@@ -405,6 +476,6 @@
         </section>
       </main>
     </div>
-    <script src="/static/app.js?v=20260715-asset-groups"></script>
+    <script src="/static/app.js?v=20260715-wiki-json"></script>
   </body>
 </html>

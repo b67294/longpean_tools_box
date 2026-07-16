@@ -19,6 +19,16 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from PIL import Image
 
+from wiki_client import (
+    WikiClient,
+    WikiClientError,
+    document_fingerprint,
+    extract_json_candidates,
+    normalize_bare_placeholders,
+    parse_document_id,
+    replace_json_candidate,
+)
+
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
@@ -67,6 +77,18 @@ class ComfyJsonPostPayload(BaseModel):
     url: str = DEFAULT_COMPANY_COMFY_URL
     json_text: str
     timeout_seconds: float = 12
+
+
+class WikiJsonFetchPayload(BaseModel):
+    wiki_input: str
+
+
+class WikiJsonWritebackPayload(BaseModel):
+    document_id: str
+    title: str
+    candidate_id: str
+    json_text: str
+    fingerprint: str
 
 
 class UnitPayload(BaseModel):
@@ -192,6 +214,12 @@ def load_json_text(json_text: str) -> Any:
     try:
         return json.loads(json_text)
     except json.JSONDecodeError as exc:
+        normalized_text, normalized_count = normalize_bare_placeholders(json_text)
+        if normalized_count:
+            try:
+                return json.loads(normalized_text)
+            except json.JSONDecodeError:
+                pass
         raise HTTPException(status_code=400, detail=f"JSON 解析失败: {exc}") from exc
 
 
@@ -1020,6 +1048,64 @@ def post_current_json_to_comfy(payload: ComfyJsonPostPayload) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise HTTPException(status_code=400, detail="顶层 JSON 必须是对象")
     return post_json_to_comfy(payload.url, data, payload.timeout_seconds)
+
+
+def get_wiki_client() -> WikiClient:
+    return WikiClient()
+
+
+@app.post("/api/wiki-json/fetch")
+def fetch_wiki_json(payload: WikiJsonFetchPayload) -> dict[str, Any]:
+    try:
+        document_id = parse_document_id(payload.wiki_input)
+        client = get_wiki_client()
+        title, markdown = client.get_document(document_id)
+        candidates = extract_json_candidates(markdown)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except WikiClientError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if not candidates:
+        raise HTTPException(status_code=422, detail="该 Wiki 文档中未找到有效的 JSON 对象代码块")
+    return {
+        "document_id": document_id,
+        "title": title,
+        "source_url": f"{client.base_url}/document/index?document_id={document_id}",
+        "fingerprint": document_fingerprint(markdown),
+        "editable": client.last_document_editable,
+        "candidates": [candidate.public_dict() for candidate in candidates],
+    }
+
+
+@app.post("/api/wiki-json/writeback")
+def writeback_wiki_json(payload: WikiJsonWritebackPayload) -> dict[str, Any]:
+    if not payload.document_id.isdigit():
+        raise HTTPException(status_code=400, detail="文档 ID 无效，请重新拉取 Wiki")
+    try:
+        client = get_wiki_client()
+        current_title, current_markdown = client.get_document(payload.document_id)
+        if not client.last_document_editable:
+            raise HTTPException(status_code=403, detail="当前 Wiki 账号只有查看权限，无法写回该文档")
+        if document_fingerprint(current_markdown) != payload.fingerprint:
+            raise HTTPException(status_code=409, detail="Wiki 文档已被修改。为避免覆盖他人内容，请重新拉取后再写回。")
+        updated_markdown = replace_json_candidate(current_markdown, payload.candidate_id, payload.json_text)
+        client.update_document(payload.document_id, current_title or payload.title, updated_markdown)
+        _saved_title, saved_markdown = client.get_document(payload.document_id)
+        if document_fingerprint(saved_markdown) != document_fingerprint(updated_markdown):
+            raise WikiClientError("Wiki 返回成功，但写回内容校验不一致，请重新拉取确认")
+        candidates = extract_json_candidates(saved_markdown)
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except WikiClientError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {
+        "ok": True,
+        "message": "Wiki JSON 已写回",
+        "fingerprint": document_fingerprint(saved_markdown),
+        "candidates": [candidate.public_dict() for candidate in candidates],
+    }
 
 
 @app.get("/api/units")

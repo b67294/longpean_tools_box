@@ -405,6 +405,41 @@ textarea:focus {
   align-items: stretch;
 }
 
+.wiki-fetch-panel {
+  margin-bottom: 12px;
+}
+
+.wiki-fetch-toolbar {
+  display: grid;
+  grid-template-columns: minmax(360px, 1.5fr) minmax(240px, 0.8fr);
+  gap: 12px;
+}
+
+.wiki-fetch-toolbar .field {
+  margin-bottom: 0;
+}
+
+.wiki-meta {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: #445466;
+  overflow-wrap: anywhere;
+}
+
+.wiki-meta a {
+  color: var(--brand-2);
+}
+
+.wiki-json-layout {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.85fr) minmax(520px, 1.65fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
 .markdown-layout {
   display: grid;
   grid-template-columns: minmax(260px, 340px) minmax(520px, 1fr);
@@ -1116,11 +1151,12 @@ canvas.checker {
   }
 
   .nav {
-    grid-template-columns: repeat(7, minmax(0, 1fr));
+    grid-template-columns: repeat(8, minmax(0, 1fr));
   }
 
   .split.two,
   .json-layout,
+  .wiki-json-layout,
   .markdown-layout,
   .asset-layout {
     grid-template-columns: 1fr;
@@ -1131,6 +1167,10 @@ canvas.checker {
   }
 
   .post-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .wiki-fetch-toolbar {
     grid-template-columns: 1fr;
   }
 

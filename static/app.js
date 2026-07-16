@@ -37,6 +37,15 @@ const state = {
   urlPreview: {
     statusTimer: null,
   },
+  wikiJson: {
+    documentId: "",
+    title: "",
+    sourceUrl: "",
+    fingerprint: "",
+    editable: false,
+    candidates: [],
+    selectedCandidateId: "",
+  },
 };
 
 function toast(message, isError = false) {
@@ -175,6 +184,7 @@ function setView(viewName) {
   const titles = {
     prompt: "ComfyUI 下发",
     json: "JSON 替换",
+    "wiki-json": "Wiki JSON",
     image: "图片透明化",
     upload: "批量上传",
     assets: "素材库",
@@ -846,6 +856,165 @@ function renderAssetGrid() {
     card.querySelector(".delete-asset").addEventListener("click", () => run(() => deleteAsset(asset.id)));
     grid.appendChild(card);
   });
+}
+
+function selectedWikiJsonCandidate() {
+  return state.wikiJson.candidates.find((item) => item.candidate_id === state.wikiJson.selectedCandidateId) || null;
+}
+
+function renderWikiJsonCandidates(loadEditor = true) {
+  const select = $("wikiJsonCandidate");
+  select.innerHTML = "";
+  state.wikiJson.candidates.forEach((candidate) => {
+    const option = document.createElement("option");
+    option.value = candidate.candidate_id;
+    const firstNode = candidate.first_node ? ` · 首节点 ${candidate.first_node}` : "";
+    const normalized = candidate.normalized_placeholder_count ? ` · 已兼容 ${candidate.normalized_placeholder_count} 个裸占位符` : "";
+    option.textContent = `JSON ${candidate.index + 1} · ${candidate.node_count} 个节点${firstNode}${normalized}`;
+    select.appendChild(option);
+  });
+  select.disabled = state.wikiJson.candidates.length === 0;
+  if (!state.wikiJson.candidates.some((item) => item.candidate_id === state.wikiJson.selectedCandidateId)) {
+    state.wikiJson.selectedCandidateId = state.wikiJson.candidates[0]?.candidate_id || "";
+  }
+  select.value = state.wikiJson.selectedCandidateId;
+  if (loadEditor) {
+    const candidate = selectedWikiJsonCandidate();
+    $("wikiJsonEditor").value = candidate?.json_text || "";
+    $("wikiSourceRules").value = "";
+    $("wikiPlaceholderRules").value = "";
+  }
+  $("writebackWikiJsonBtn").disabled = !state.wikiJson.editable || !state.wikiJson.documentId || !state.wikiJson.selectedCandidateId;
+}
+
+function renderWikiJsonMeta() {
+  const meta = $("wikiJsonMeta");
+  if (!state.wikiJson.documentId) {
+    meta.textContent = "尚未拉取 Wiki 文档";
+    return;
+  }
+  const permission = state.wikiJson.editable ? "可编辑" : "只读（账号无编辑权限）";
+  meta.innerHTML = `文档：<b>${escapeHtml(state.wikiJson.title)}</b> · ID ${escapeHtml(state.wikiJson.documentId)} · ${permission} · ` +
+    `<a href="${escapeHtml(state.wikiJson.sourceUrl)}" target="_blank" rel="noreferrer">打开 Wiki</a> · ` +
+    `${state.wikiJson.candidates.length} 个 JSON 候选`;
+}
+
+async function fetchWikiJson() {
+  const button = $("fetchWikiJsonBtn");
+  const wikiInput = $("wikiJsonInput").value.trim();
+  if (!wikiInput) throw new Error("请输入 Wiki URL 或文档 ID");
+  button.disabled = true;
+  button.textContent = "拉取中...";
+  $("wikiJsonLog").textContent = `正在拉取 Wiki：${wikiInput}`;
+  try {
+    const data = await api("/api/wiki-json/fetch", { wiki_input: wikiInput });
+    state.wikiJson = {
+      documentId: data.document_id,
+      title: data.title,
+      sourceUrl: data.source_url,
+      fingerprint: data.fingerprint,
+      editable: Boolean(data.editable),
+      candidates: data.candidates || [],
+      selectedCandidateId: data.candidates?.[0]?.candidate_id || "",
+    };
+    renderWikiJsonCandidates(true);
+    renderWikiJsonMeta();
+    const permissionNote = state.wikiJson.editable ? "可写回 Wiki" : "当前账号为只读，已禁用写回";
+    const normalizedCount = state.wikiJson.candidates.reduce((sum, item) => sum + Number(item.normalized_placeholder_count || 0), 0);
+    const normalizedNote = normalizedCount ? `\n已自动兼容 ${normalizedCount} 个未加引号的占位符` : "";
+    $("wikiJsonLog").textContent = `拉取成功：${data.title}\n找到 ${state.wikiJson.candidates.length} 个有效 JSON 对象代码块${normalizedNote}\n${permissionNote}`;
+    toast("Wiki JSON 拉取成功");
+  } finally {
+    button.disabled = false;
+    button.textContent = "拉取 Wiki";
+  }
+}
+
+async function applyWikiRules(rulesId) {
+  const data = await api("/api/rules/apply", {
+    json_text: $("wikiJsonEditor").value,
+    rules_text: $(rulesId).value,
+  });
+  $("wikiJsonEditor").value = data.json_text;
+  $("wikiJsonLog").textContent = `成功替换 ${data.success_count} 项\n\n${(data.logs || []).join("\n")}`;
+  toast("规则已写入 Wiki JSON");
+}
+
+async function extractWikiPlaceholderRules() {
+  const data = await api("/api/rules/extract-placeholders", { json_text: $("wikiJsonEditor").value });
+  $("wikiPlaceholderRules").value = data.rules_text;
+  $("wikiJsonLog").textContent = `已提取 ${data.count} 条占位符规则`;
+  toast("已提取占位符规则");
+}
+
+async function extractWikiSourceRules() {
+  const data = await api("/api/rules/extract-source", {
+    json_text: $("wikiJsonEditor").value,
+    rules_text: $("wikiPlaceholderRules").value,
+  });
+  $("wikiSourceRules").value = data.rules_text;
+  $("wikiJsonLog").textContent = `已提取 ${data.count} 条源数据\n\n${(data.logs || []).join("\n")}`;
+  toast("已提取源数据");
+}
+
+async function renameWikiSaveImage() {
+  const data = await api("/api/json/rename-save-image", { json_text: $("wikiJsonEditor").value });
+  $("wikiJsonEditor").value = data.json_text;
+  $("wikiJsonLog").textContent = data.count ? `已将 ${data.count} 个 SaveImage 节点改为 saveFile` : "未找到 SaveImage 节点";
+  toast("SaveImage 处理完成");
+}
+
+async function postWikiJsonToComfy() {
+  const button = $("postWikiJsonComfyBtn");
+  button.disabled = true;
+  button.textContent = "下发中...";
+  const url = $("wikiJsonComfyUrl").value;
+  const timeoutSeconds = Number($("wikiJsonComfyTimeout").value || 12);
+  $("wikiJsonLog").textContent = `正在下发到 ComfyUI...\n目标: ${url}\n超时: ${timeoutSeconds} 秒`;
+  try {
+    const data = await api("/api/json/post-comfy", {
+      url,
+      json_text: $("wikiJsonEditor").value,
+      timeout_seconds: timeoutSeconds,
+    });
+    $("wikiJsonLog").textContent = `POST: ${data.url}\n状态码: ${data.status}\n\n${data.body}`;
+    toast("Wiki JSON 已下发到 ComfyUI");
+  } finally {
+    button.disabled = false;
+    button.textContent = "下发到 ComfyUI";
+  }
+}
+
+async function writebackWikiJson() {
+  const candidate = selectedWikiJsonCandidate();
+  if (!candidate || !state.wikiJson.documentId) throw new Error("请先拉取并选择 Wiki JSON");
+  const confirmed = window.confirm(
+    `确定将当前 JSON 写回《${state.wikiJson.title}》(ID: ${state.wikiJson.documentId}) 吗？\n\n` +
+    "只会替换所选 JSON 代码块；如果线上文档已变化，系统会阻止覆盖。"
+  );
+  if (!confirmed) return;
+  const button = $("writebackWikiJsonBtn");
+  button.disabled = true;
+  button.textContent = "写回中...";
+  $("wikiJsonLog").textContent = "正在检查线上版本并写回 Wiki...";
+  try {
+    const data = await api("/api/wiki-json/writeback", {
+      document_id: state.wikiJson.documentId,
+      title: state.wikiJson.title,
+      candidate_id: candidate.candidate_id,
+      json_text: $("wikiJsonEditor").value,
+      fingerprint: state.wikiJson.fingerprint,
+    });
+    state.wikiJson.fingerprint = data.fingerprint;
+    state.wikiJson.candidates = data.candidates || [];
+    renderWikiJsonCandidates(false);
+    renderWikiJsonMeta();
+    $("wikiJsonLog").textContent = data.message || "Wiki JSON 已写回";
+    toast("Wiki JSON 已写回");
+  } finally {
+    button.textContent = "写回 Wiki";
+    button.disabled = !state.wikiJson.editable || !state.wikiJson.documentId;
+  }
 }
 
 function readDraggedAssetIds(event) {
@@ -1988,6 +2157,30 @@ function bindEvents() {
   $("extractSourceRulesBtn").addEventListener("click", () => run(extractSourceRules));
   $("renameSaveBtn").addEventListener("click", () => run(renameSaveImage));
   $("postJsonComfyBtn").addEventListener("click", () => run(postJsonToComfy));
+
+  $("fetchWikiJsonBtn").addEventListener("click", () => run(fetchWikiJson));
+  $("wikiJsonInput").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      run(fetchWikiJson);
+    }
+  });
+  $("wikiJsonCandidate").addEventListener("change", (event) => {
+    state.wikiJson.selectedCandidateId = event.target.value;
+    const candidate = selectedWikiJsonCandidate();
+    $("wikiJsonEditor").value = candidate?.json_text || "";
+    $("wikiSourceRules").value = "";
+    $("wikiPlaceholderRules").value = "";
+    $("wikiJsonLog").textContent = candidate ? `已切换到 JSON ${candidate.index + 1}` : "";
+  });
+  $("wikiJsonFormatBtn").addEventListener("click", () => run(() => formatTextarea("wikiJsonEditor")));
+  $("wikiApplySourceRulesBtn").addEventListener("click", () => run(() => applyWikiRules("wikiSourceRules")));
+  $("wikiApplyPlaceholderRulesBtn").addEventListener("click", () => run(() => applyWikiRules("wikiPlaceholderRules")));
+  $("wikiExtractPlaceholderRulesBtn").addEventListener("click", () => run(extractWikiPlaceholderRules));
+  $("wikiExtractSourceRulesBtn").addEventListener("click", () => run(extractWikiSourceRules));
+  $("wikiRenameSaveBtn").addEventListener("click", () => run(renameWikiSaveImage));
+  $("postWikiJsonComfyBtn").addEventListener("click", () => run(postWikiJsonToComfy));
+  $("writebackWikiJsonBtn").addEventListener("click", () => run(writebackWikiJson));
 
   $("imageInput").addEventListener("change", (event) => run(() => loadImageFile(event.target.files[0])));
   bindFileDropZone("imageDropZone", (files) => {
