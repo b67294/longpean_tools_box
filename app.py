@@ -17,7 +17,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from PIL import Image
+from PIL import Image, ImageChops
 
 from wiki_client import (
     WikiClient,
@@ -39,10 +39,13 @@ MARKDOWN_DOCS_DIR = DATA_DIR / "markdown_docs"
 MARKDOWN_DOCS_INDEX = DATA_DIR / "markdown_docs_index.json"
 ASSET_LIBRARY_STORE = DATA_DIR / "asset_library.json"
 ASSET_FILES_DIR = DATA_DIR / "asset_files"
+TABLE_RUNNER_STORE = DATA_DIR / "table_runners.json"
+TABLE_RUNNER_FILES_DIR = DATA_DIR / "table_runner_files"
 URL_PREVIEW_CONFIG = DATA_DIR / "url_preview_config.json"
 URL_PREVIEW_STATUS = DATA_DIR / "url_preview_status.json"
 URL_PREVIEW_PID = DATA_DIR / "url_preview.pid"
 URL_PREVIEW_STOP = DATA_DIR / "url_preview.stop"
+WIKI_JSON_STORE = DATA_DIR / "wiki_json_store.json"
 URL_PREVIEW_DAEMON = BASE_DIR / "preview_daemon.py"
 DEFAULT_COMFY_URL = "http://117.50.174.91:6099/prompt"
 DEFAULT_COMPANY_COMFY_URL = "http://117.50.174.91:6070/"
@@ -52,9 +55,11 @@ RULE_PLACEHOLDER_PATTERN = re.compile(r"#\{[^{}]+\}")
 COMFY_CLIENT_ID = str(uuid.uuid4())
 
 ASSET_FILES_DIR.mkdir(parents=True, exist_ok=True)
+TABLE_RUNNER_FILES_DIR.mkdir(parents=True, exist_ok=True)
 app = FastAPI(title="Tool Box Web")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/asset-files", StaticFiles(directory=ASSET_FILES_DIR), name="asset-files")
+app.mount("/table-runner-files", StaticFiles(directory=TABLE_RUNNER_FILES_DIR), name="table-runner-files")
 
 
 class JsonTextPayload(BaseModel):
@@ -89,6 +94,21 @@ class WikiJsonWritebackPayload(BaseModel):
     candidate_id: str
     json_text: str
     fingerprint: str
+
+
+class WikiJsonSavedPayload(BaseModel):
+    document_id: str
+    title: str
+    source_url: str
+    json_text: str
+    source_rules_text: str = ""
+    placeholder_rules_text: str = ""
+    candidate_id: str = ""
+    node_count: int = 0
+
+
+class WikiJsonSavedDeletePayload(BaseModel):
+    document_id: str
 
 
 class UnitPayload(BaseModel):
@@ -186,10 +206,27 @@ class UrlPreviewConfigPayload(BaseModel):
     allow_content_type_probe: bool = True
 
 
+class TableRunnerComposePayload(BaseModel):
+    file_name: str = "table-runner-half.png"
+    data_url: str
+
+
+class TableRunnerSavePayload(BaseModel):
+    name: str = ""
+    file_name: str = "table-runner-half.png"
+    source_data_url: str
+    result_data_url: str
+
+
+class TableRunnerDeletePayload(BaseModel):
+    id: str
+
+
 def ensure_data_files() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     MARKDOWN_DOCS_DIR.mkdir(parents=True, exist_ok=True)
     ASSET_FILES_DIR.mkdir(parents=True, exist_ok=True)
+    TABLE_RUNNER_FILES_DIR.mkdir(parents=True, exist_ok=True)
     if not UNITS_STORE.exists():
         legacy_store = next(
             BASE_DIR.parent.glob("*_tool_box/Comfyui_json_replacer/json_units_store.json"),
@@ -208,6 +245,31 @@ def ensure_data_files() -> None:
             json.dumps({"categories": [], "assets": []}, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+    if not WIKI_JSON_STORE.exists():
+        WIKI_JSON_STORE.write_text("[]", encoding="utf-8")
+    if not TABLE_RUNNER_STORE.exists():
+        TABLE_RUNNER_STORE.write_text("[]", encoding="utf-8")
+
+
+def load_saved_wiki_jsons() -> list[dict[str, Any]]:
+    ensure_data_files()
+    try:
+        data = json.loads(WIKI_JSON_STORE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    records = []
+    for item in data:
+        if not isinstance(item, dict) or not str(item.get("document_id", "")).isdigit():
+            continue
+        records.append(item)
+    return sorted(records, key=lambda item: str(item.get("title", "")).lower())
+
+
+def save_saved_wiki_jsons(records: list[dict[str, Any]]) -> None:
+    ensure_data_files()
+    WIKI_JSON_STORE.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def load_json_text(json_text: str) -> Any:
@@ -723,6 +785,62 @@ def image_to_data_url(image: Image.Image, fmt: str = "PNG") -> str:
     return f"data:image/png;base64,{encoded}"
 
 
+def open_data_url_image(data_url: str) -> Image.Image:
+    image_bytes = decode_data_url(data_url)
+    try:
+        image = Image.open(io.BytesIO(image_bytes))
+        image.load()
+        return image.convert("RGB")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"无法读取图片: {exc}") from exc
+
+
+def compose_table_runner(source: Image.Image) -> tuple[Image.Image, Image.Image, dict[str, Any]]:
+    width = 672
+    half_height = 1824
+    half = source.resize((width, half_height), Image.Resampling.LANCZOS)
+    upper = half.rotate(180)
+    full = Image.new("RGB", (672, 3648))
+    full.paste(upper, (0, 0))
+    full.paste(half, (0, half_height))
+
+    symmetry_exact = ImageChops.difference(full, full.rotate(180)).getbbox() is None
+    meta = {
+        "width": full.width,
+        "height": full.height,
+        "ratio": "7:38",
+        "half_width": half.width,
+        "half_height": half.height,
+        "symmetry_exact": symmetry_exact,
+    }
+    return half, full, meta
+
+
+def load_table_runner_history() -> list[dict[str, Any]]:
+    ensure_data_files()
+    try:
+        data = json.loads(TABLE_RUNNER_STORE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    return sorted(
+        [item for item in data if isinstance(item, dict) and item.get("id")],
+        key=lambda item: str(item.get("created_at", "")),
+        reverse=True,
+    )
+
+
+def save_table_runner_history(records: list[dict[str, Any]]) -> None:
+    ensure_data_files()
+    TABLE_RUNNER_STORE.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def safe_table_runner_name(value: str, fallback: str) -> str:
+    name = re.sub(r"[\\/:*?\"<>|\r\n]+", "-", value.strip()).strip(" .-")
+    return (name or fallback)[:80]
+
+
 def asset_file_url(file_name: str) -> str:
     return f"/asset-files/{file_name}"
 
@@ -1106,6 +1224,51 @@ def writeback_wiki_json(payload: WikiJsonWritebackPayload) -> dict[str, Any]:
         "fingerprint": document_fingerprint(saved_markdown),
         "candidates": [candidate.public_dict() for candidate in candidates],
     }
+
+
+@app.get("/api/wiki-json/saved")
+def list_saved_wiki_jsons() -> dict[str, Any]:
+    return {"items": load_saved_wiki_jsons()}
+
+
+@app.post("/api/wiki-json/saved/save")
+def save_wiki_json_record(payload: WikiJsonSavedPayload) -> dict[str, Any]:
+    document_id = payload.document_id.strip()
+    title = payload.title.strip()
+    if not document_id.isdigit():
+        raise HTTPException(status_code=400, detail="请先从 Wiki 拉取有效文档")
+    if not title:
+        raise HTTPException(status_code=400, detail="Wiki 文档标题不能为空")
+    data = load_json_text(payload.json_text)
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="顶层 JSON 必须是对象")
+    records = load_saved_wiki_jsons()
+    existing = next((item for item in records if str(item.get("document_id")) == document_id), None)
+    timestamp = now_text()
+    record = {
+        "document_id": document_id,
+        "title": title,
+        "source_url": f"{WikiClient().base_url}/document/index?document_id={document_id}",
+        "json_text": payload.json_text,
+        "source_rules_text": payload.source_rules_text,
+        "placeholder_rules_text": payload.placeholder_rules_text,
+        "candidate_id": payload.candidate_id,
+        "node_count": len(data),
+        "created_at": (existing or {}).get("created_at") or timestamp,
+        "updated_at": timestamp,
+    }
+    updated = [item for item in records if str(item.get("document_id")) != document_id]
+    updated.append(record)
+    save_saved_wiki_jsons(updated)
+    return {"item": record, "items": load_saved_wiki_jsons(), "overwritten": existing is not None}
+
+
+@app.post("/api/wiki-json/saved/delete")
+def delete_wiki_json_record(payload: WikiJsonSavedDeletePayload) -> dict[str, Any]:
+    document_id = payload.document_id.strip()
+    records = [item for item in load_saved_wiki_jsons() if str(item.get("document_id")) != document_id]
+    save_saved_wiki_jsons(records)
+    return {"items": load_saved_wiki_jsons()}
 
 
 @app.get("/api/units")
@@ -1585,6 +1748,69 @@ def white_transparent(payload: ImagePayload) -> dict[str, Any]:
                 pixels[x, y] = (red, green, blue, 0)
                 count += 1
     return {"data_url": image_to_data_url(image), "count": count, "width": image.width, "height": image.height}
+
+
+@app.post("/api/table-runner/compose")
+def compose_table_runner_endpoint(payload: TableRunnerComposePayload) -> dict[str, Any]:
+    source = open_data_url_image(payload.data_url)
+    _half, full, meta = compose_table_runner(source)
+    return {"data_url": image_to_data_url(full), **meta}
+
+
+@app.get("/api/table-runners")
+def list_table_runners() -> dict[str, Any]:
+    return {"items": load_table_runner_history()}
+
+
+@app.post("/api/table-runners/save")
+def save_table_runner(payload: TableRunnerSavePayload) -> dict[str, Any]:
+    source = open_data_url_image(payload.source_data_url)
+    result = open_data_url_image(payload.result_data_url)
+    if result.size != (672, 3648):
+        raise HTTPException(status_code=400, detail="完整桌旗必须是 672 × 3648")
+
+    record_id = uuid.uuid4().hex
+    fallback_name = Path(payload.file_name).stem or "桌旗"
+    display_name = safe_table_runner_name(payload.name, fallback_name)
+    file_base = safe_table_runner_name(display_name, "table-runner")
+    half_file = f"{record_id}_{file_base}_half.png"
+    full_file = f"{record_id}_{file_base}_full.png"
+    source.save(TABLE_RUNNER_FILES_DIR / half_file, format="PNG", optimize=True)
+    result.save(TABLE_RUNNER_FILES_DIR / full_file, format="PNG", optimize=True)
+
+    record = {
+        "id": record_id,
+        "name": display_name,
+        "source_file_name": payload.file_name,
+        "width": result.width,
+        "height": result.height,
+        "half_url": f"/table-runner-files/{half_file}",
+        "full_url": f"/table-runner-files/{full_file}",
+        "created_at": now_text(),
+    }
+    records = load_table_runner_history()
+    records.append(record)
+    save_table_runner_history(records)
+    return {"item": record, "items": load_table_runner_history()}
+
+
+@app.post("/api/table-runners/delete")
+def delete_table_runner(payload: TableRunnerDeletePayload) -> dict[str, Any]:
+    record_id = payload.id.strip()
+    records = load_table_runner_history()
+    target = next((item for item in records if item.get("id") == record_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="历史桌旗不存在")
+    for key in ("half_url", "full_url"):
+        file_name = Path(str(target.get(key, ""))).name
+        if file_name:
+            try:
+                (TABLE_RUNNER_FILES_DIR / file_name).unlink(missing_ok=True)
+            except OSError:
+                pass
+    records = [item for item in records if item.get("id") != record_id]
+    save_table_runner_history(records)
+    return {"items": load_table_runner_history()}
 
 
 @app.post("/api/upload/images")

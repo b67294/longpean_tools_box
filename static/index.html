@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tool Box</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260715-wiki-json" />
+    <link rel="stylesheet" href="/static/style.css?v=20260721-direct-stitch" />
   </head>
   <body>
     <div class="app-shell">
@@ -21,6 +21,7 @@
           <button class="nav-item" data-view="json">JSON 替换</button>
           <button class="nav-item" data-view="wiki-json">Wiki JSON</button>
           <button class="nav-item" data-view="image">图片透明化</button>
+          <button class="nav-item" data-view="table-runner">桌旗拼接</button>
           <button class="nav-item" data-view="upload">批量上传</button>
           <button class="nav-item" data-view="assets">素材库</button>
           <button class="nav-item" data-view="markdown">Markdown 文档</button>
@@ -162,6 +163,8 @@
               <h3>从 Wiki 拉取 JSON</h3>
               <div class="actions">
                 <button id="fetchWikiJsonBtn" class="primary">拉取 Wiki</button>
+                <button id="saveWikiJsonBtn" disabled>保存</button>
+                <button id="deleteSavedWikiJsonBtn" disabled>删除保存</button>
                 <button id="writebackWikiJsonBtn" disabled>写回 Wiki</button>
               </div>
             </div>
@@ -174,6 +177,12 @@
                 <span>JSON 候选</span>
                 <select id="wikiJsonCandidate" disabled>
                   <option value="">拉取后选择</option>
+                </select>
+              </label>
+              <label class="field wiki-saved-field">
+                <span>已保存 Wiki</span>
+                <select id="savedWikiJsonSelect">
+                  <option value="">选择已保存记录</option>
                 </select>
               </label>
             </div>
@@ -254,6 +263,59 @@
                 <span id="imageMeta" class="muted">未选择图片</span>
               </div>
               <canvas id="imageCanvas" class="checker"></canvas>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-table-runner" class="view">
+          <div class="split two table-runner-workspace">
+            <div class="panel">
+              <div class="panel-head">
+                <h3>半幅原图</h3>
+                <span class="status-badge">原图放下方</span>
+              </div>
+              <label id="tableRunnerDropZone" class="drop-zone">
+                <input id="tableRunnerInput" type="file" accept="image/*" />
+                <span>选择半幅图片或拖入文件</span>
+              </label>
+              <div id="tableRunnerSourceMeta" class="unit-meta">未选择图片</div>
+              <label class="field">
+                <span>历史记录名称</span>
+                <input id="tableRunnerName" placeholder="默认使用源文件名" />
+              </label>
+              <div class="help-box table-runner-direction-note">
+                固定流程：输入图直接拉伸为 672 × 1824，保持正向放在下半部；复制后旋转 180°放在上半部，直接拼成 672 × 3648。不裁切、不补色、不添加安全区。
+              </div>
+              <div class="actions table-runner-actions">
+                <button id="composeTableRunnerBtn" class="primary">生成预览</button>
+                <button id="saveTableRunnerBtn" disabled>保存到历史</button>
+                <button id="downloadTableRunnerBtn" disabled>下载完整图</button>
+                <button id="resetTableRunnerBtn">重置</button>
+              </div>
+            </div>
+            <div class="panel table-runner-preview-panel">
+              <div class="panel-head">
+                <h3>672:3648 完整预览</h3>
+                <span id="tableRunnerResultMeta" class="muted">尚未生成</span>
+              </div>
+              <div class="table-runner-preview-shell">
+                <div id="tableRunnerPreviewEmpty" class="asset-empty">生成后在这里预览完整桌旗</div>
+                <img id="tableRunnerPreview" class="hidden" alt="桌旗完整预览" />
+              </div>
+              <div id="tableRunnerValidation" class="table-runner-validation muted">等待生成</div>
+            </div>
+          </div>
+
+          <div class="panel table-runner-history-panel">
+            <div class="panel-head">
+              <div>
+                <h3>历史桌旗</h3>
+                <span id="tableRunnerHistoryCount" class="muted">0 条</span>
+              </div>
+              <button id="refreshTableRunnerHistoryBtn">刷新历史</button>
+            </div>
+            <div id="tableRunnerHistory" class="table-runner-history-grid">
+              <div class="asset-empty">暂无保存记录</div>
             </div>
           </div>
         </section>
@@ -476,6 +538,6 @@
         </section>
       </main>
     </div>
-    <script src="/static/app.js?v=20260715-wiki-json"></script>
+    <script src="/static/app.js?v=20260721-direct-stitch"></script>
   </body>
 </html>

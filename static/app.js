@@ -20,6 +20,16 @@ const state = {
     naturalHeight: 0,
     draw: null,
   },
+  tableRunner: {
+    fileName: "",
+    sourceDataUrl: "",
+    sourceWidth: 0,
+    sourceHeight: 0,
+    resultDataUrl: "",
+    resultWidth: 0,
+    resultHeight: 0,
+    history: [],
+  },
   uploadFiles: [],
   uploadResults: [],
   assets: {
@@ -45,6 +55,7 @@ const state = {
     editable: false,
     candidates: [],
     selectedCandidateId: "",
+    savedItems: [],
   },
 };
 
@@ -186,6 +197,7 @@ function setView(viewName) {
     json: "JSON 替换",
     "wiki-json": "Wiki JSON",
     image: "图片透明化",
+    "table-runner": "桌旗旋转拼接",
     upload: "批量上传",
     assets: "素材库",
     markdown: "Markdown 文档",
@@ -515,6 +527,190 @@ function resetImage() {
   $("imageMeta").textContent = "未选择图片";
   $("pixelInfo").textContent = "在右侧预览图上点击查看 RGB/RGBA";
   renderImageCanvas();
+}
+
+function clearTableRunnerResult() {
+  state.tableRunner.resultDataUrl = "";
+  state.tableRunner.resultWidth = 0;
+  state.tableRunner.resultHeight = 0;
+  $("tableRunnerPreview").removeAttribute("src");
+  $("tableRunnerPreview").classList.add("hidden");
+  $("tableRunnerPreviewEmpty").classList.remove("hidden");
+  $("tableRunnerResultMeta").textContent = "尚未生成";
+  $("tableRunnerValidation").textContent = "等待生成";
+  $("tableRunnerValidation").classList.remove("valid");
+  $("saveTableRunnerBtn").disabled = true;
+  $("downloadTableRunnerBtn").disabled = true;
+}
+
+async function loadTableRunnerFile(file) {
+  if (!file) return;
+  const dataUrl = await fileToDataUrl(file);
+  const bitmap = await createImageBitmap(file);
+  const sourceWidth = bitmap.width;
+  const sourceHeight = bitmap.height;
+  state.tableRunner.fileName = file.name;
+  state.tableRunner.sourceDataUrl = dataUrl;
+  state.tableRunner.sourceWidth = sourceWidth;
+  state.tableRunner.sourceHeight = sourceHeight;
+  bitmap.close?.();
+  const ratio = sourceHeight / sourceWidth;
+  $("tableRunnerSourceMeta").textContent = `${file.name} | ${sourceWidth} × ${sourceHeight} | 约 1:${ratio.toFixed(2)}`;
+  if (!$("tableRunnerName").value.trim()) {
+    $("tableRunnerName").value = file.name.replace(/\.[^.]+$/, "");
+  }
+  clearTableRunnerResult();
+  toast("半幅图片已载入，原图将放在完整桌旗下方");
+}
+
+async function composeTableRunner() {
+  if (!state.tableRunner.sourceDataUrl) {
+    toast("请先选择一张半幅图片", true);
+    return;
+  }
+  const button = $("composeTableRunnerBtn");
+  button.disabled = true;
+  button.textContent = "拼接中...";
+  try {
+    const data = await api("/api/table-runner/compose", {
+      file_name: state.tableRunner.fileName,
+      data_url: state.tableRunner.sourceDataUrl,
+    });
+    state.tableRunner.resultDataUrl = data.data_url;
+    state.tableRunner.resultWidth = data.width;
+    state.tableRunner.resultHeight = data.height;
+    $("tableRunnerPreview").src = data.data_url;
+    $("tableRunnerPreview").classList.remove("hidden");
+    $("tableRunnerPreviewEmpty").classList.add("hidden");
+    $("tableRunnerResultMeta").textContent = `${data.width} × ${data.height} | 固定尺寸`;
+    $("tableRunnerValidation").textContent = `输入图已直接拉伸为 ${data.half_width} × ${data.half_height} · 原图在下方 · 上方为 180° 旋转副本 · 未添加安全区或其他处理`;
+    $("tableRunnerValidation").classList.toggle("valid", Boolean(data.symmetry_exact));
+    $("saveTableRunnerBtn").disabled = false;
+    $("downloadTableRunnerBtn").disabled = false;
+    toast("桌旗预览已生成");
+  } finally {
+    button.disabled = false;
+    button.textContent = "生成预览";
+  }
+}
+
+function tableRunnerDownloadName() {
+  const raw = $("tableRunnerName").value.trim() || state.tableRunner.fileName.replace(/\.[^.]+$/, "") || "table-runner";
+  return `${raw.replace(/[\\/:*?"<>|]+/g, "-")}_${state.tableRunner.resultWidth}x${state.tableRunner.resultHeight}.png`;
+}
+
+function downloadTableRunner() {
+  if (!state.tableRunner.resultDataUrl) {
+    toast("请先生成完整桌旗", true);
+    return;
+  }
+  downloadDataUrl(state.tableRunner.resultDataUrl, tableRunnerDownloadName());
+}
+
+async function saveTableRunner() {
+  if (!state.tableRunner.sourceDataUrl || !state.tableRunner.resultDataUrl) {
+    toast("请先生成完整桌旗", true);
+    return;
+  }
+  const button = $("saveTableRunnerBtn");
+  button.disabled = true;
+  button.textContent = "保存中...";
+  try {
+    const data = await api("/api/table-runners/save", {
+      name: $("tableRunnerName").value.trim(),
+      file_name: state.tableRunner.fileName,
+      source_data_url: state.tableRunner.sourceDataUrl,
+      result_data_url: state.tableRunner.resultDataUrl,
+    });
+    state.tableRunner.history = data.items || [];
+    renderTableRunnerHistory();
+    toast("桌旗已保存到历史");
+  } finally {
+    button.disabled = false;
+    button.textContent = "保存到历史";
+  }
+}
+
+async function refreshTableRunnerHistory() {
+  const data = await api("/api/table-runners");
+  state.tableRunner.history = data.items || [];
+  renderTableRunnerHistory();
+}
+
+function renderTableRunnerHistory() {
+  const box = $("tableRunnerHistory");
+  const items = state.tableRunner.history;
+  $("tableRunnerHistoryCount").textContent = `${items.length} 条`;
+  box.innerHTML = "";
+  if (!items.length) {
+    const empty = document.createElement("div");
+    empty.className = "asset-empty";
+    empty.textContent = "暂无保存记录";
+    box.appendChild(empty);
+    return;
+  }
+  items.forEach((item) => {
+    const card = document.createElement("article");
+    card.className = "table-runner-history-card";
+
+    const thumbLink = document.createElement("a");
+    thumbLink.className = "table-runner-history-thumb";
+    thumbLink.href = item.full_url;
+    thumbLink.target = "_blank";
+    thumbLink.rel = "noopener";
+    const image = document.createElement("img");
+    image.src = item.full_url;
+    image.alt = item.name || "历史桌旗";
+    image.loading = "lazy";
+    thumbLink.appendChild(image);
+
+    const body = document.createElement("div");
+    body.className = "table-runner-history-body";
+    const title = document.createElement("h4");
+    title.className = "table-runner-history-name";
+    title.textContent = item.name || "未命名桌旗";
+    const meta = document.createElement("div");
+    meta.className = "table-runner-history-meta";
+    meta.textContent = `${item.width} × ${item.height} · 直接拉伸旋转拼接 · ${item.created_at || ""}`;
+
+    const actions = document.createElement("div");
+    actions.className = "table-runner-history-actions";
+    const fullLink = document.createElement("a");
+    fullLink.href = item.full_url;
+    fullLink.download = `${item.name || "table-runner"}_${item.width}x${item.height}.png`;
+    fullLink.textContent = "下载完整图";
+    const halfLink = document.createElement("a");
+    halfLink.href = item.half_url;
+    halfLink.target = "_blank";
+    halfLink.rel = "noopener";
+    halfLink.textContent = "查看半幅";
+    const deleteButton = document.createElement("button");
+    deleteButton.textContent = "删除";
+    deleteButton.addEventListener("click", () => run(() => deleteTableRunnerHistory(item)));
+    actions.append(fullLink, halfLink, deleteButton);
+    body.append(title, meta, actions);
+    card.append(thumbLink, body);
+    box.appendChild(card);
+  });
+}
+
+async function deleteTableRunnerHistory(item) {
+  if (!window.confirm(`确定删除历史桌旗“${item.name || "未命名"}”吗？`)) return;
+  const data = await api("/api/table-runners/delete", { id: item.id });
+  state.tableRunner.history = data.items || [];
+  renderTableRunnerHistory();
+  toast("历史桌旗已删除");
+}
+
+function resetTableRunner() {
+  state.tableRunner.fileName = "";
+  state.tableRunner.sourceDataUrl = "";
+  state.tableRunner.sourceWidth = 0;
+  state.tableRunner.sourceHeight = 0;
+  $("tableRunnerInput").value = "";
+  $("tableRunnerName").value = "";
+  $("tableRunnerSourceMeta").textContent = "未选择图片";
+  clearTableRunnerResult();
 }
 
 function renderUploadFiles() {
@@ -862,6 +1058,91 @@ function selectedWikiJsonCandidate() {
   return state.wikiJson.candidates.find((item) => item.candidate_id === state.wikiJson.selectedCandidateId) || null;
 }
 
+function renderSavedWikiJsons() {
+  const select = $("savedWikiJsonSelect");
+  const current = select.value || state.wikiJson.documentId;
+  select.innerHTML = '<option value="">选择已保存记录</option>';
+  state.wikiJson.savedItems.forEach((item) => {
+    const option = document.createElement("option");
+    option.value = item.document_id;
+    option.textContent = `${item.title} · ID ${item.document_id}`;
+    select.appendChild(option);
+  });
+  if (state.wikiJson.savedItems.some((item) => item.document_id === current)) select.value = current;
+  $("deleteSavedWikiJsonBtn").disabled = !select.value;
+}
+
+async function refreshSavedWikiJsons() {
+  const data = await api("/api/wiki-json/saved");
+  state.wikiJson.savedItems = data.items || [];
+  renderSavedWikiJsons();
+}
+
+function loadSavedWikiJson(documentId) {
+  const item = state.wikiJson.savedItems.find((record) => record.document_id === documentId);
+  if (!item) return;
+  state.wikiJson.documentId = item.document_id;
+  state.wikiJson.title = item.title;
+  state.wikiJson.sourceUrl = item.source_url;
+  state.wikiJson.fingerprint = "";
+  state.wikiJson.editable = false;
+  state.wikiJson.candidates = [{
+    candidate_id: item.candidate_id || "saved-json",
+    index: 0,
+    json_text: item.json_text,
+    node_count: item.node_count || 0,
+    first_node: "",
+    normalized_placeholder_count: 0,
+  }];
+  state.wikiJson.selectedCandidateId = state.wikiJson.candidates[0].candidate_id;
+  $("wikiJsonInput").value = item.source_url;
+  renderWikiJsonCandidates(true);
+  $("wikiSourceRules").value = item.source_rules_text || "";
+  $("wikiPlaceholderRules").value = item.placeholder_rules_text || "";
+  renderWikiJsonMeta();
+  $("saveWikiJsonBtn").disabled = false;
+  $("deleteSavedWikiJsonBtn").disabled = false;
+  $("wikiJsonLog").textContent = `已载入本地保存：${item.title}\n修改时间：${item.updated_at || "未记录"}`;
+  toast("已载入保存的 Wiki JSON");
+}
+
+async function saveCurrentWikiJson() {
+  const candidate = selectedWikiJsonCandidate();
+  if (!candidate || !state.wikiJson.documentId || !state.wikiJson.title) throw new Error("请先拉取 Wiki 文档");
+  const data = await api("/api/wiki-json/saved/save", {
+    document_id: state.wikiJson.documentId,
+    title: state.wikiJson.title,
+    source_url: state.wikiJson.sourceUrl,
+    json_text: $("wikiJsonEditor").value,
+    source_rules_text: $("wikiSourceRules").value,
+    placeholder_rules_text: $("wikiPlaceholderRules").value,
+    candidate_id: candidate.candidate_id,
+    node_count: candidate.node_count || 0,
+  });
+  state.wikiJson.savedItems = data.items || [];
+  renderSavedWikiJsons();
+  $("savedWikiJsonSelect").value = state.wikiJson.documentId;
+  $("deleteSavedWikiJsonBtn").disabled = false;
+  $("wikiJsonLog").textContent = data.overwritten
+    ? `已覆盖保存：${state.wikiJson.title}\n同一 Wiki ID 只保留一份记录`
+    : `已保存：${state.wikiJson.title}`;
+  toast(data.overwritten ? "已覆盖原 Wiki 保存" : "Wiki JSON 已保存");
+}
+
+async function deleteSavedWikiJson() {
+  const documentId = $("savedWikiJsonSelect").value;
+  const item = state.wikiJson.savedItems.find((record) => record.document_id === documentId);
+  if (!item) throw new Error("请先选择已保存记录");
+  if (!window.confirm(`确定删除本地保存《${item.title}》吗？\n不会删除 Wiki 上的文档。`)) return;
+  const data = await api("/api/wiki-json/saved/delete", { document_id: documentId });
+  state.wikiJson.savedItems = data.items || [];
+  renderSavedWikiJsons();
+  $("savedWikiJsonSelect").value = "";
+  $("deleteSavedWikiJsonBtn").disabled = true;
+  $("wikiJsonLog").textContent = `已删除本地保存：${item.title}`;
+  toast("本地保存已删除");
+}
+
 function renderWikiJsonCandidates(loadEditor = true) {
   const select = $("wikiJsonCandidate");
   select.innerHTML = "";
@@ -885,6 +1166,7 @@ function renderWikiJsonCandidates(loadEditor = true) {
     $("wikiPlaceholderRules").value = "";
   }
   $("writebackWikiJsonBtn").disabled = !state.wikiJson.editable || !state.wikiJson.documentId || !state.wikiJson.selectedCandidateId;
+  $("saveWikiJsonBtn").disabled = !state.wikiJson.documentId || !state.wikiJson.selectedCandidateId;
 }
 
 function renderWikiJsonMeta() {
@@ -916,9 +1198,15 @@ async function fetchWikiJson() {
       editable: Boolean(data.editable),
       candidates: data.candidates || [],
       selectedCandidateId: data.candidates?.[0]?.candidate_id || "",
+      savedItems: state.wikiJson.savedItems,
     };
     renderWikiJsonCandidates(true);
     renderWikiJsonMeta();
+    renderSavedWikiJsons();
+    if (state.wikiJson.savedItems.some((item) => item.document_id === state.wikiJson.documentId)) {
+      $("savedWikiJsonSelect").value = state.wikiJson.documentId;
+      $("deleteSavedWikiJsonBtn").disabled = false;
+    }
     const permissionNote = state.wikiJson.editable ? "可写回 Wiki" : "当前账号为只读，已禁用写回";
     const normalizedCount = state.wikiJson.candidates.reduce((sum, item) => sum + Number(item.normalized_placeholder_count || 0), 0);
     const normalizedNote = normalizedCount ? `\n已自动兼容 ${normalizedCount} 个未加引号的占位符` : "";
@@ -2129,6 +2417,9 @@ function bindEvents() {
       if (button.dataset.view === "assets") {
         run(refreshAssets);
       }
+      if (button.dataset.view === "table-runner") {
+        run(refreshTableRunnerHistory);
+      }
     });
   });
   $("promptFormatBtn").addEventListener("click", () => run(() => formatTextarea("promptJson")));
@@ -2159,6 +2450,12 @@ function bindEvents() {
   $("postJsonComfyBtn").addEventListener("click", () => run(postJsonToComfy));
 
   $("fetchWikiJsonBtn").addEventListener("click", () => run(fetchWikiJson));
+  $("saveWikiJsonBtn").addEventListener("click", () => run(saveCurrentWikiJson));
+  $("deleteSavedWikiJsonBtn").addEventListener("click", () => run(deleteSavedWikiJson));
+  $("savedWikiJsonSelect").addEventListener("change", (event) => {
+    if (event.target.value) loadSavedWikiJson(event.target.value);
+    else $("deleteSavedWikiJsonBtn").disabled = true;
+  });
   $("wikiJsonInput").addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
@@ -2200,6 +2497,17 @@ function bindEvents() {
   $("resetImageBtn").addEventListener("click", resetImage);
   $("imageCanvas").addEventListener("click", pickPixel);
   window.addEventListener("resize", renderImageCanvas);
+
+  $("tableRunnerInput").addEventListener("change", (event) => run(() => loadTableRunnerFile(event.target.files[0])));
+  bindFileDropZone("tableRunnerDropZone", (files) => {
+    $("tableRunnerInput").value = "";
+    run(() => loadTableRunnerFile(files[0]));
+  });
+  $("composeTableRunnerBtn").addEventListener("click", () => run(composeTableRunner));
+  $("saveTableRunnerBtn").addEventListener("click", () => run(saveTableRunner));
+  $("downloadTableRunnerBtn").addEventListener("click", downloadTableRunner);
+  $("resetTableRunnerBtn").addEventListener("click", resetTableRunner);
+  $("refreshTableRunnerHistoryBtn").addEventListener("click", () => run(refreshTableRunnerHistory));
 
   $("uploadInput").addEventListener("change", (event) => {
     state.uploadFiles = imageFilesFrom(event.target.files);
@@ -2320,8 +2628,10 @@ async function boot() {
     $("healthText").textContent = "连接失败";
   }
   await run(refreshUnits);
+  await run(refreshSavedWikiJsons);
   await run(refreshAssets);
   await run(refreshDocs);
+  await run(refreshTableRunnerHistory);
   await run(refreshUrlPreviewStatus);
   state.urlPreview.statusTimer = setInterval(() => run(refreshUrlPreviewStatus), 4000);
 }

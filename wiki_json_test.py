@@ -1,5 +1,7 @@
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -137,6 +139,35 @@ class WikiJsonApiTest(unittest.TestCase):
             response = self.client.post("/api/wiki-json/writeback", json=payload)
         self.assertEqual(response.status_code, 409)
         self.assertIsNone(fake.updated)
+
+    def test_saved_wiki_is_unique_by_document_id_and_overwrites(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = Path(temp_dir) / "wiki_json_store.json"
+            store.write_text("[]", encoding="utf-8")
+            first = {
+                "document_id": "8052",
+                "title": "礼品袋-横版规格-主图-信封-三种侧面",
+                "source_url": "https://wiki.longpean.com/document/index?document_id=8052",
+                "json_text": '{"1":{"inputs":{}}}',
+                "source_rules_text": "1,url,source",
+                "placeholder_rules_text": "1,url,#{image}",
+                "candidate_id": "json-1",
+                "node_count": 1,
+            }
+            second = dict(first, json_text='{"2":{"inputs":{}}}', source_rules_text="2,url,new")
+            with patch.object(toolbox_app, "WIKI_JSON_STORE", store):
+                created = self.client.post("/api/wiki-json/saved/save", json=first)
+                overwritten = self.client.post("/api/wiki-json/saved/save", json=second)
+                listed = self.client.get("/api/wiki-json/saved")
+            self.assertEqual(created.status_code, 200)
+            self.assertFalse(created.json()["overwritten"])
+            self.assertTrue(overwritten.json()["overwritten"])
+            items = listed.json()["items"]
+            self.assertEqual(len(items), 1)
+            self.assertEqual(items[0]["document_id"], "8052")
+            self.assertEqual(items[0]["title"], first["title"])
+            self.assertEqual(items[0]["json_text"], second["json_text"])
+            self.assertEqual(items[0]["source_rules_text"], "2,url,new")
 
 
 if __name__ == "__main__":

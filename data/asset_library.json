@@ -31,6 +31,15 @@
   ],
   "assets": [
     {
+      "id": "4246ae849b7c4d4b9375f1722724a217",
+      "category_id": "e00337e75dd04450b66c3e0689a2c9d2",
+      "name": "阴影组合",
+      "url": "https://pspk.longpean.com/dd1493ed-6478-4a80-9a49-ad52c7aa7eb3.png",
+      "preview_url": "/asset-files/47289c2661b54dc280fe42faad9076cd.png",
+      "created_at": "2026-07-20 10:04:34",
+      "updated_at": "2026-07-20 10:04:34"
+    },
+    {
       "id": "c572886b6b1f4917bff4ed1d9b4bb37d",
       "category_id": "9d68e3d3acf24989a1e4a6710d031300",
       "name": "白色正面",
@@ -128,26 +137,18 @@
       "preview_url": "/asset-files/2a106be868b9402f92c192036b801ca5.png",
       "created_at": "2026-07-15 10:12:24",
       "updated_at": "2026-07-15 10:12:24"
+    },
+    {
+      "id": "ddfb1e76e2c045cd809787e73293f93f",
+      "category_id": "e00337e75dd04450b66c3e0689a2c9d2",
+      "name": "主图描边.png",
+      "url": "https://pspk.longpean.com/e5c39a3b-0236-4569-b2ae-164ff17951b7.png",
+      "preview_url": "https://pspk.longpean.com/e5c39a3b-0236-4569-b2ae-164ff17951b7.png",
+      "created_at": "2026-07-20 10:06:12",
+      "updated_at": "2026-07-20 10:06:12"
     }
   ],
   "groups": [
-    {
-      "id": "e72ad5c40d83428688739b803f98f115",
-      "category_id": "9d68e3d3acf24989a1e4a6710d031300",
-      "name": "粉色测试",
-      "asset_ids": [
-        "3ce83f40fc55422ea91846a353597fd3",
-        "74399730203146c2bdd6e7c94bb4ed0d"
-      ],
-      "cover_asset_id": "3ce83f40fc55422ea91846a353597fd3",
-      "attributes": {
-        "tissue_paper_color": "",
-        "ribbon_color": ""
-      },
-      "custom_fields": [],
-      "created_at": "2026-07-15 16:52:25",
-      "updated_at": "2026-07-15 16:52:51"
-    },
     {
       "id": "32165bfe60014f05b98d2af10cc919f8",
       "category_id": "9d68e3d3acf24989a1e4a6710d031300",
@@ -164,6 +165,23 @@
       "custom_fields": [],
       "created_at": "2026-07-15 16:52:03",
       "updated_at": "2026-07-15 17:44:24"
+    },
+    {
+      "id": "e72ad5c40d83428688739b803f98f115",
+      "category_id": "9d68e3d3acf24989a1e4a6710d031300",
+      "name": "粉色测试",
+      "asset_ids": [
+        "3ce83f40fc55422ea91846a353597fd3",
+        "74399730203146c2bdd6e7c94bb4ed0d"
+      ],
+      "cover_asset_id": "3ce83f40fc55422ea91846a353597fd3",
+      "attributes": {
+        "tissue_paper_color": "",
+        "ribbon_color": ""
+      },
+      "custom_fields": [],
+      "created_at": "2026-07-15 16:52:25",
+      "updated_at": "2026-07-15 16:52:51"
     }
   ]
 }
