@@ -1,6 +1,6 @@
 {
-  "state": "stopped",
-  "message": "URL 图片预览已关闭",
-  "pid": null,
-  "updated_at": "2026-07-14 18:19:43"
+  "state": "running",
+  "message": "URL 图片预览运行中",
+  "pid": 40388,
+  "updated_at": "2026-07-29 11:36:14"
 }

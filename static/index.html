@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tool Box</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260721-direct-stitch" />
+    <link rel="stylesheet" href="/static/style.css?v=20260812-ratio-stitch" />
   </head>
   <body>
     <div class="app-shell">
@@ -22,6 +22,9 @@
           <button class="nav-item" data-view="wiki-json">Wiki JSON</button>
           <button class="nav-item" data-view="image">图片透明化</button>
           <button class="nav-item" data-view="table-runner">桌旗拼接</button>
+          <button class="nav-item" data-view="half-swap">Half Swap</button>
+          <button class="nav-item" data-view="ratio-stitch">比例拼接</button>
+          <button class="nav-item" data-view="image-crop">图片裁剪拼接</button>
           <button class="nav-item" data-view="upload">批量上传</button>
           <button class="nav-item" data-view="assets">素材库</button>
           <button class="nav-item" data-view="markdown">Markdown 文档</button>
@@ -320,6 +323,203 @@
           </div>
         </section>
 
+        <section id="view-half-swap" class="view">
+          <div class="split two half-swap-workspace">
+            <div class="panel">
+              <div class="panel-head">
+                <h3>左右 Half Swap</h3>
+                <span class="status-badge">本地批量处理</span>
+              </div>
+              <label id="halfSwapDropZone" class="drop-zone">
+                <input id="halfSwapInput" type="file" accept="image/*" multiple />
+                <span>选择一张或多张图片，也可以直接拖入</span>
+              </label>
+              <div class="half-swap-settings">
+                <label class="field">
+                  <span>输出文件夹</span>
+                  <input id="halfSwapOutputDir" value="F:\Longpean-AIGC\outputs\half-swap" />
+                </label>
+                <label class="field">
+                  <span>输出后缀</span>
+                  <input id="halfSwapSuffix" value="-halfswap" />
+                </label>
+              </div>
+              <div class="actions half-swap-actions">
+                <button id="halfSwapPreviewBtn" class="primary" disabled>交换预览</button>
+                <button id="halfSwapSaveBtn" disabled>批量保存</button>
+                <button id="halfSwapClearBtn">清空</button>
+              </div>
+              <div id="halfSwapFiles" class="file-list empty">未选择文件</div>
+            </div>
+
+            <div class="panel half-swap-preview-panel">
+              <div class="panel-head">
+                <h3>预览与结果</h3>
+                <span id="halfSwapMeta" class="muted">等待图片</span>
+              </div>
+              <div class="half-swap-preview-shell">
+                <div id="halfSwapPreviewEmpty" class="asset-empty">点击图片列表或“交换预览”后显示</div>
+                <img id="halfSwapPreview" class="hidden" alt="Half swap 预览" />
+              </div>
+              <pre id="halfSwapLog" class="log short"></pre>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-ratio-stitch" class="view">
+          <div class="ratio-stitch-workspace">
+            <div class="panel ratio-stitch-control-panel">
+              <div class="panel-head">
+                <h3>批量比例拼接</h3>
+                <span class="status-badge">本地批量处理</span>
+              </div>
+              <label id="ratioStitchDropZone" class="drop-zone">
+                <input id="ratioStitchInput" type="file" accept="image/*" multiple />
+                <span>拖入多张图片，或点击选择多张图片</span>
+              </label>
+              <label class="button-like ratio-stitch-folder-button">
+                <input id="ratioStitchFolderInput" type="file" accept="image/*" multiple webkitdirectory />
+                选择整个文件夹
+              </label>
+              <div class="help-box ratio-stitch-note">
+                每张图片会单独横向重复，直到覆盖目标比例，再从左右两侧居中裁剪。不会缩放、不会融合接缝。
+              </div>
+              <div class="ratio-stitch-settings">
+                <label class="field">
+                  <span>目标比例（宽）</span>
+                  <input id="ratioStitchWidth" type="number" min="1" step="1" value="500" />
+                </label>
+                <div class="ratio-stitch-colon">:</div>
+                <label class="field">
+                  <span>目标比例（高）</span>
+                  <input id="ratioStitchHeight" type="number" min="1" step="1" value="43" />
+                </label>
+              </div>
+              <label class="field">
+                <span>输出文件夹</span>
+                <input id="ratioStitchOutputDir" value="F:\Longpean-AIGC\outputs\ratio-stitch" />
+              </label>
+              <label class="field">
+                <span>输出文件后缀</span>
+                <input id="ratioStitchSuffix" value="_500x43" />
+              </label>
+              <div class="actions ratio-stitch-actions">
+                <button id="ratioStitchPreviewBtn" class="primary" disabled>重新计算预览</button>
+                <button id="ratioStitchSaveBtn" disabled>批量保存</button>
+                <button id="ratioStitchClearBtn">清空</button>
+              </div>
+              <div id="ratioStitchFiles" class="file-list empty">未选择文件</div>
+            </div>
+
+            <div class="panel ratio-stitch-preview-panel">
+              <div class="panel-head">
+                <h3>结果预览</h3>
+                <span id="ratioStitchMeta" class="muted">等待图片</span>
+              </div>
+              <div class="ratio-stitch-preview-shell">
+                <div id="ratioStitchPreviewEmpty" class="asset-empty">选择列表中的图片后显示拼接与裁剪结果</div>
+                <canvas id="ratioStitchPreview" class="hidden" aria-label="比例拼接预览"></canvas>
+              </div>
+              <div id="ratioStitchStats" class="ratio-stitch-stats">
+                <div><span>源尺寸</span><strong>-</strong></div>
+                <div><span>拼接次数</span><strong>-</strong></div>
+                <div><span>拼接后</span><strong>-</strong></div>
+                <div><span>裁剪量</span><strong>-</strong></div>
+                <div><span>最终尺寸</span><strong>-</strong></div>
+              </div>
+              <pre id="ratioStitchLog" class="log short"></pre>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-image-crop" class="view">
+          <div class="crop-workspace">
+            <div class="panel crop-control-panel">
+              <div class="panel-head">
+                <h3>载入与裁剪</h3>
+                <span class="status-badge">本地处理</span>
+              </div>
+              <label id="cropDropZone" class="drop-zone">
+                <input id="cropInput" type="file" accept="image/*" />
+                <span>选择图片或拖入文件</span>
+              </label>
+              <div id="cropSourceMeta" class="unit-meta">未选择图片</div>
+
+              <div class="section-title">顶部快捷裁剪</div>
+              <label class="field">
+                <span>裁掉顶部：<b id="cropTopPercentValue">0%</b></span>
+                <input id="cropTopPercent" type="range" min="0" max="50" step="0.25" value="0" />
+              </label>
+              <label class="field">
+                <span>顶部裁剪像素</span>
+                <input id="cropTopPixels" type="number" min="0" step="1" value="0" />
+              </label>
+              <div class="help-box">
+                也可以直接在中间画布拖动裁剪框：拖边或四角改变范围，拖框内移动整个裁剪区域。
+              </div>
+              <div id="cropRectMeta" class="unit-meta">裁剪范围：等待图片</div>
+
+              <div class="actions crop-actions">
+                <button id="confirmCropBtn" class="primary" disabled>确认裁剪</button>
+                <button id="resetCropRectBtn" disabled>恢复全图</button>
+                <button id="resetCropToolBtn">重置工具</button>
+              </div>
+
+              <div class="section-title">确认后的保存方式</div>
+              <div class="actions crop-actions">
+                <button id="downloadCroppedBtn" disabled>另存裁剪图</button>
+                <button id="overwriteCroppedBtn" disabled>选择原文件并覆盖</button>
+              </div>
+              <div class="help-box warning">
+                “覆盖”会打开系统保存窗口，请选择原文件并确认替换；浏览器不会在没有确认的情况下直接覆盖文件。
+              </div>
+            </div>
+
+            <div class="panel crop-editor-panel">
+              <div class="panel-head">
+                <h3>自由裁剪</h3>
+                <span id="cropEditorHint" class="muted">拖入图片后开始</span>
+              </div>
+              <div id="cropCanvasShell" class="crop-canvas-shell">
+                <div id="cropCanvasEmpty" class="asset-empty">图片会显示在这里</div>
+                <canvas id="cropCanvas" class="hidden" aria-label="图片自由裁剪画布"></canvas>
+              </div>
+            </div>
+
+            <div class="panel crop-result-panel">
+              <div class="panel-head">
+                <h3>裁剪与拼接结果</h3>
+                <span id="cropResultMeta" class="muted">尚未确认裁剪</span>
+              </div>
+              <div class="crop-result-grid">
+                <div>
+                  <h4>裁剪图</h4>
+                  <div class="crop-result-shell">
+                    <div id="croppedPreviewEmpty" class="asset-empty">确认裁剪后显示</div>
+                    <img id="croppedPreview" class="hidden" alt="裁剪结果预览" />
+                  </div>
+                </div>
+                <div>
+                  <div class="crop-stitch-head">
+                    <h4>旋转拼接图</h4>
+                    <button id="cropStitchBtn" disabled>旋转拼接</button>
+                  </div>
+                  <div class="crop-result-shell tall">
+                    <div id="cropStitchPreviewEmpty" class="asset-empty">裁剪后可直接拼接</div>
+                    <img id="cropStitchPreview" class="hidden" alt="旋转拼接结果预览" />
+                  </div>
+                </div>
+              </div>
+              <div class="actions crop-result-actions">
+                <button id="downloadCropStitchBtn" disabled>下载完整拼接图</button>
+              </div>
+              <div class="help-box">
+                拼接规则固定：裁剪图拉伸到 672 × 1824 并正向放在下方，复制后旋转 180°放在上方，输出 672 × 3648。
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section id="view-upload" class="view">
           <div class="split two">
             <div class="panel">
@@ -538,6 +738,6 @@
         </section>
       </main>
     </div>
-    <script src="/static/app.js?v=20260721-direct-stitch"></script>
+    <script src="/static/app.js?v=20260812-ratio-stitch"></script>
   </body>
 </html>

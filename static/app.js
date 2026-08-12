@@ -30,6 +30,32 @@ const state = {
     resultHeight: 0,
     history: [],
   },
+  halfSwap: {
+    files: [],
+    selectedIndex: 0,
+    previewDataUrl: "",
+    previewWidth: 0,
+    previewHeight: 0,
+    results: [],
+  },
+  ratioStitch: {
+    files: [],
+    selectedIndex: 0,
+    results: [],
+  },
+  cropTool: {
+    fileName: "",
+    sourceDataUrl: "",
+    bitmap: null,
+    sourceWidth: 0,
+    sourceHeight: 0,
+    crop: null,
+    drag: null,
+    croppedDataUrl: "",
+    croppedWidth: 0,
+    croppedHeight: 0,
+    stitchedDataUrl: "",
+  },
   uploadFiles: [],
   uploadResults: [],
   assets: {
@@ -198,6 +224,9 @@ function setView(viewName) {
     "wiki-json": "Wiki JSON",
     image: "图片透明化",
     "table-runner": "桌旗旋转拼接",
+    "half-swap": "Half Swap",
+    "ratio-stitch": "比例拼接与自动裁剪",
+    "image-crop": "图片裁剪拼接",
     upload: "批量上传",
     assets: "素材库",
     markdown: "Markdown 文档",
@@ -206,6 +235,9 @@ function setView(viewName) {
   $("viewTitle").textContent = titles[viewName] || "Tool Box";
   if (viewName === "image") {
     setTimeout(renderImageCanvas, 80);
+  }
+  if (viewName === "image-crop") {
+    setTimeout(renderCropCanvas, 80);
   }
 }
 
@@ -711,6 +743,649 @@ function resetTableRunner() {
   $("tableRunnerName").value = "";
   $("tableRunnerSourceMeta").textContent = "未选择图片";
   clearTableRunnerResult();
+}
+
+function halfSwapOutputName(fileName, suffix = "-halfswap") {
+  const dot = fileName.lastIndexOf(".");
+  const base = dot > 0 ? fileName.slice(0, dot) : fileName;
+  const cleanBase = (base || "image").replace(/[\\/:*?"<>|]+/g, "-");
+  const cleanSuffix = (suffix || "-halfswap").trim() || "-halfswap";
+  return `${cleanBase}${cleanSuffix}.png`;
+}
+
+function renderHalfSwapFiles() {
+  const box = $("halfSwapFiles");
+  const files = state.halfSwap.files;
+  box.innerHTML = "";
+  box.classList.toggle("empty", files.length === 0);
+  $("halfSwapPreviewBtn").disabled = files.length === 0;
+  $("halfSwapSaveBtn").disabled = files.length === 0;
+  if (!files.length) {
+    box.textContent = "未选择文件";
+    $("halfSwapMeta").textContent = "等待图片";
+    $("halfSwapPreview").src = "";
+    $("halfSwapPreview").classList.add("hidden");
+    $("halfSwapPreviewEmpty").classList.remove("hidden");
+    $("halfSwapLog").textContent = "";
+    return;
+  }
+  files.forEach((item, index) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = `file-row ${index === state.halfSwap.selectedIndex ? "active" : ""}`;
+    row.innerHTML = `<span>${item.file.name}</span><small>${item.width || "?"} × ${item.height || "?"}</small>`;
+    row.addEventListener("click", () => {
+      state.halfSwap.selectedIndex = index;
+      renderHalfSwapFiles();
+      run(() => previewHalfSwap(index));
+    });
+    box.appendChild(row);
+  });
+}
+
+async function loadHalfSwapFiles(files) {
+  const imageFiles = imageFilesFrom(files);
+  if (!imageFiles.length) {
+    toast("请选择图片文件", true);
+    return;
+  }
+  const loaded = [];
+  for (const file of imageFiles) {
+    const dataUrl = await fileToDataUrl(file);
+    const bitmap = await createImageBitmap(file);
+    loaded.push({
+      file,
+      dataUrl,
+      width: bitmap.width,
+      height: bitmap.height,
+    });
+    bitmap.close?.();
+  }
+  state.halfSwap.files = loaded;
+  state.halfSwap.selectedIndex = 0;
+  state.halfSwap.results = [];
+  renderHalfSwapFiles();
+  await previewHalfSwap(0);
+  toast(`已载入 ${loaded.length} 张图片`);
+}
+
+function halfSwapDataUrl(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const ctx = canvas.getContext("2d");
+        const mid = Math.floor(canvas.width / 2);
+        ctx.drawImage(image, mid, 0, canvas.width - mid, canvas.height, 0, 0, canvas.width - mid, canvas.height);
+        ctx.drawImage(image, 0, 0, mid, canvas.height, canvas.width - mid, 0, mid, canvas.height);
+        resolve({
+          dataUrl: canvas.toDataURL("image/png"),
+          width: canvas.width,
+          height: canvas.height,
+        });
+      } catch (error) {
+        reject(error);
+      }
+    };
+    image.onerror = () => reject(new Error("无法读取图片预览"));
+    image.src = dataUrl;
+  });
+}
+
+async function previewHalfSwap(index = state.halfSwap.selectedIndex) {
+  const item = state.halfSwap.files[index];
+  if (!item) {
+    toast("请先选择图片", true);
+    return;
+  }
+  const result = await halfSwapDataUrl(item.dataUrl);
+  state.halfSwap.previewDataUrl = result.dataUrl;
+  state.halfSwap.previewWidth = result.width;
+  state.halfSwap.previewHeight = result.height;
+  $("halfSwapPreview").src = result.dataUrl;
+  $("halfSwapPreview").classList.remove("hidden");
+  $("halfSwapPreviewEmpty").classList.add("hidden");
+  $("halfSwapMeta").textContent = `${item.file.name} | ${result.width} × ${result.height}`;
+  const suffix = $("halfSwapSuffix").value.trim() || "-halfswap";
+  $("halfSwapLog").textContent = `预览文件：${halfSwapOutputName(item.file.name, suffix)}\n输出文件夹：${$("halfSwapOutputDir").value.trim() || "未设置"}`;
+}
+
+async function saveHalfSwapBatch() {
+  if (!state.halfSwap.files.length) {
+    toast("请先选择图片", true);
+    return;
+  }
+  const outputDir = $("halfSwapOutputDir").value.trim();
+  if (!outputDir) {
+    toast("请填写输出文件夹", true);
+    return;
+  }
+  const button = $("halfSwapSaveBtn");
+  button.disabled = true;
+  button.textContent = "保存中...";
+  try {
+    const images = state.halfSwap.files.map((item) => ({
+      file_name: item.file.name,
+      data_url: item.dataUrl,
+    }));
+    const data = await api("/api/half-swap/process", {
+      output_dir: outputDir,
+      suffix: $("halfSwapSuffix").value.trim() || "-halfswap",
+      images,
+    });
+    state.halfSwap.results = data.results || [];
+    const lines = state.halfSwap.results.map((item) => {
+      if (item.ok) return `${item.file_name} -> ${item.output_path}`;
+      return `${item.file_name} -> 失败：${item.error}`;
+    });
+    $("halfSwapLog").textContent = lines.join("\n");
+    const firstSuccess = state.halfSwap.results.find((item) => item.ok && item.data_url);
+    if (firstSuccess) {
+      $("halfSwapPreview").src = firstSuccess.data_url;
+      $("halfSwapPreview").classList.remove("hidden");
+      $("halfSwapPreviewEmpty").classList.add("hidden");
+      $("halfSwapMeta").textContent = `已保存 ${state.halfSwap.results.filter((item) => item.ok).length} 张 | ${data.output_dir}`;
+    }
+    toast("Half swap 批量保存完成");
+  } finally {
+    button.disabled = state.halfSwap.files.length === 0;
+    button.textContent = "批量保存";
+  }
+}
+
+function clearHalfSwap() {
+  state.halfSwap.files = [];
+  state.halfSwap.selectedIndex = 0;
+  state.halfSwap.previewDataUrl = "";
+  state.halfSwap.results = [];
+  $("halfSwapInput").value = "";
+  renderHalfSwapFiles();
+  toast("Half swap 已清空");
+}
+
+function ratioStitchSettings() {
+  const ratioWidth = Math.max(1, Math.round(Number($("ratioStitchWidth").value) || 500));
+  const ratioHeight = Math.max(1, Math.round(Number($("ratioStitchHeight").value) || 43));
+  return { ratioWidth, ratioHeight };
+}
+
+function calculateRatioStitch(width, height) {
+  const { ratioWidth, ratioHeight } = ratioStitchSettings();
+  const repeatCount = Math.max(1, Math.ceil((ratioWidth * height) / (ratioHeight * width)));
+  const stitchedWidth = width * repeatCount;
+  const cropWidth = Math.round((height * ratioWidth) / ratioHeight);
+  const excess = stitchedWidth - cropWidth;
+  const cropLeft = Math.floor(excess / 2);
+  return { ratioWidth, ratioHeight, repeatCount, stitchedWidth, stitchedHeight: height, cropWidth, cropHeight: height, cropLeft, cropRight: excess - cropLeft };
+}
+
+function ratioStitchOutputName(fileName) {
+  const dot = fileName.lastIndexOf(".");
+  const base = dot > 0 ? fileName.slice(0, dot) : fileName;
+  const { ratioWidth, ratioHeight } = ratioStitchSettings();
+  const suffix = $("ratioStitchSuffix").value.trim() || `_${ratioWidth}x${ratioHeight}`;
+  return `${(base || "image").replace(/[\\/:*?"<>|]+/g, "-")}${suffix}.png`;
+}
+
+function renderRatioStitchFiles() {
+  const box = $("ratioStitchFiles");
+  const files = state.ratioStitch.files;
+  box.innerHTML = "";
+  box.classList.toggle("empty", files.length === 0);
+  $("ratioStitchPreviewBtn").disabled = files.length === 0;
+  $("ratioStitchSaveBtn").disabled = files.length === 0;
+  if (!files.length) {
+    box.textContent = "未选择文件";
+    $("ratioStitchMeta").textContent = "等待图片";
+    $("ratioStitchPreview").classList.add("hidden");
+    $("ratioStitchPreviewEmpty").classList.remove("hidden");
+    $("ratioStitchLog").textContent = "";
+    renderRatioStitchStats(null, null);
+    return;
+  }
+  files.forEach((item, index) => {
+    const plan = calculateRatioStitch(item.width, item.height);
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = `file-row ${index === state.ratioStitch.selectedIndex ? "active" : ""}`;
+    row.innerHTML = `<span>${item.file.name}</span><small>${item.width} × ${item.height} · 拼 ${plan.repeatCount} 次</small>`;
+    row.addEventListener("click", () => {
+      state.ratioStitch.selectedIndex = index;
+      renderRatioStitchFiles();
+      renderRatioStitchPreview(index);
+    });
+    box.appendChild(row);
+  });
+}
+
+function renderRatioStitchStats(item, plan) {
+  const values = item && plan ? [
+    `${item.width} × ${item.height}`,
+    `${plan.repeatCount} 次`,
+    `${plan.stitchedWidth} × ${plan.stitchedHeight}`,
+    `左 ${plan.cropLeft}px / 右 ${plan.cropRight}px`,
+    `${plan.cropWidth} × ${plan.cropHeight}`,
+  ] : ["-", "-", "-", "-", "-"];
+  $("ratioStitchStats").querySelectorAll("strong").forEach((node, index) => { node.textContent = values[index]; });
+}
+
+async function loadRatioStitchFiles(files) {
+  const imageFiles = imageFilesFrom(files);
+  if (!imageFiles.length) return toast("请选择图片文件", true);
+  state.ratioStitch.files.forEach((item) => item.bitmap?.close?.());
+  const loaded = [];
+  for (const file of imageFiles) {
+    const dataUrl = await fileToDataUrl(file);
+    const bitmap = await createImageBitmap(file);
+    loaded.push({ file, dataUrl, width: bitmap.width, height: bitmap.height, bitmap });
+  }
+  state.ratioStitch.files = loaded;
+  state.ratioStitch.selectedIndex = 0;
+  state.ratioStitch.results = [];
+  renderRatioStitchFiles();
+  renderRatioStitchPreview(0);
+  toast(`已加载 ${loaded.length} 张图片`);
+}
+
+function renderRatioStitchPreview(index = state.ratioStitch.selectedIndex) {
+  const item = state.ratioStitch.files[index];
+  if (!item) return;
+  const plan = calculateRatioStitch(item.width, item.height);
+  const canvas = $("ratioStitchPreview");
+  const previewWidth = Math.min(1400, plan.cropWidth);
+  const previewHeight = Math.max(1, Math.round(previewWidth * plan.cropHeight / plan.cropWidth));
+  canvas.width = previewWidth;
+  canvas.height = previewHeight;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const scale = previewHeight / item.height;
+  const tileWidth = item.width * scale;
+  const offsetX = -plan.cropLeft * scale;
+  for (let repeat = 0; repeat < plan.repeatCount; repeat += 1) {
+    ctx.drawImage(item.bitmap, offsetX + repeat * tileWidth, 0, tileWidth, previewHeight);
+  }
+  canvas.classList.remove("hidden");
+  $("ratioStitchPreviewEmpty").classList.add("hidden");
+  $("ratioStitchMeta").textContent = `${item.file.name} · 目标 ${plan.ratioWidth}:${plan.ratioHeight}`;
+  renderRatioStitchStats(item, plan);
+  $("ratioStitchLog").textContent = `预计输出：${ratioStitchOutputName(item.file.name)}\n输出文件夹：${$("ratioStitchOutputDir").value.trim() || "未设置"}`;
+}
+
+function refreshRatioStitchPreview() {
+  if (!state.ratioStitch.files.length) return;
+  renderRatioStitchFiles();
+  renderRatioStitchPreview();
+}
+
+async function saveRatioStitchBatch() {
+  if (!state.ratioStitch.files.length) return toast("请先选择图片", true);
+  const outputDir = $("ratioStitchOutputDir").value.trim();
+  if (!outputDir) return toast("请填写输出文件夹", true);
+  const { ratioWidth, ratioHeight } = ratioStitchSettings();
+  const button = $("ratioStitchSaveBtn");
+  button.disabled = true;
+  button.textContent = "保存中...";
+  try {
+    const data = await api("/api/ratio-stitch/process", {
+      output_dir: outputDir,
+      ratio_width: ratioWidth,
+      ratio_height: ratioHeight,
+      suffix: $("ratioStitchSuffix").value.trim() || `_${ratioWidth}x${ratioHeight}`,
+      images: state.ratioStitch.files.map((item) => ({ file_name: item.file.name, data_url: item.dataUrl })),
+    });
+    state.ratioStitch.results = data.results || [];
+    $("ratioStitchLog").textContent = state.ratioStitch.results.map((item) => item.ok
+      ? `${item.file_name} -> ${item.output_path} | 拼 ${item.repeat_count} 次 | ${item.width}×${item.height}`
+      : `${item.file_name} -> 失败：${item.error}`).join("\n");
+    const successCount = state.ratioStitch.results.filter((item) => item.ok).length;
+    $("ratioStitchMeta").textContent = `已保存 ${successCount}/${state.ratioStitch.results.length} 张 · ${data.output_dir}`;
+    toast(`批量保存完成：${successCount} 张`);
+  } finally {
+    button.disabled = state.ratioStitch.files.length === 0;
+    button.textContent = "批量保存";
+  }
+}
+
+function clearRatioStitch() {
+  state.ratioStitch.files.forEach((item) => item.bitmap?.close?.());
+  state.ratioStitch.files = [];
+  state.ratioStitch.selectedIndex = 0;
+  state.ratioStitch.results = [];
+  $("ratioStitchInput").value = "";
+  $("ratioStitchFolderInput").value = "";
+  renderRatioStitchFiles();
+  toast("比例拼接列表已清空");
+}
+
+function cropOutputName(suffix = "_cropped") {
+  const sourceName = state.cropTool.fileName || "image.png";
+  const dot = sourceName.lastIndexOf(".");
+  const base = dot > 0 ? sourceName.slice(0, dot) : sourceName;
+  const extension = dot > 0 ? sourceName.slice(dot).toLowerCase() : ".png";
+  const safeExtension = [".jpg", ".jpeg", ".png", ".webp"].includes(extension) ? extension : ".png";
+  return `${base}${suffix}${safeExtension}`;
+}
+
+function cropMimeType() {
+  const name = state.cropTool.fileName.toLowerCase();
+  if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg";
+  if (name.endsWith(".webp")) return "image/webp";
+  return "image/png";
+}
+
+function clearCropOutputs() {
+  state.cropTool.croppedDataUrl = "";
+  state.cropTool.croppedWidth = 0;
+  state.cropTool.croppedHeight = 0;
+  state.cropTool.stitchedDataUrl = "";
+  $("croppedPreview").src = "";
+  $("croppedPreview").classList.add("hidden");
+  $("croppedPreviewEmpty").classList.remove("hidden");
+  $("cropStitchPreview").src = "";
+  $("cropStitchPreview").classList.add("hidden");
+  $("cropStitchPreviewEmpty").classList.remove("hidden");
+  $("cropResultMeta").textContent = "尚未确认裁剪";
+  $("downloadCroppedBtn").disabled = true;
+  $("overwriteCroppedBtn").disabled = true;
+  $("cropStitchBtn").disabled = true;
+  $("downloadCropStitchBtn").disabled = true;
+}
+
+function updateCropRectMeta() {
+  const crop = state.cropTool.crop;
+  if (!crop || !state.cropTool.sourceWidth) {
+    $("cropRectMeta").textContent = "裁剪范围：等待图片";
+    return;
+  }
+  const removedTop = crop.y;
+  const percent = removedTop / state.cropTool.sourceHeight * 100;
+  $("cropRectMeta").textContent =
+    `裁剪范围：x ${crop.x} · y ${crop.y} · ${crop.w} × ${crop.h} | 顶部裁掉 ${removedTop}px（${percent.toFixed(2)}%）`;
+  $("cropTopPercent").value = Math.min(50, percent).toFixed(2);
+  $("cropTopPercentValue").textContent = `${percent.toFixed(2)}%`;
+  $("cropTopPixels").max = Math.max(0, state.cropTool.sourceHeight - 1);
+  $("cropTopPixels").value = removedTop;
+}
+
+function renderCropCanvas() {
+  const canvas = $("cropCanvas");
+  const bitmap = state.cropTool.bitmap;
+  const crop = state.cropTool.crop;
+  if (!canvas || !bitmap || !crop) return;
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const context = canvas.getContext("2d");
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(bitmap, 0, 0);
+
+  context.fillStyle = "rgba(10, 18, 28, 0.62)";
+  context.fillRect(0, 0, canvas.width, crop.y);
+  context.fillRect(0, crop.y + crop.h, canvas.width, canvas.height - crop.y - crop.h);
+  context.fillRect(0, crop.y, crop.x, crop.h);
+  context.fillRect(crop.x + crop.w, crop.y, canvas.width - crop.x - crop.w, crop.h);
+
+  const displayScale = canvas.width / Math.max(1, canvas.getBoundingClientRect().width);
+  const line = Math.max(2, Math.round(displayScale * 2));
+  const handle = Math.max(8, Math.round(displayScale * 9));
+  context.save();
+  context.strokeStyle = "#20d6a1";
+  context.lineWidth = line;
+  context.setLineDash([line * 4, line * 2]);
+  context.strokeRect(crop.x, crop.y, crop.w, crop.h);
+  context.setLineDash([]);
+  context.fillStyle = "#ffffff";
+  context.strokeStyle = "#087b62";
+  const points = [
+    [crop.x, crop.y],
+    [crop.x + crop.w / 2, crop.y],
+    [crop.x + crop.w, crop.y],
+    [crop.x, crop.y + crop.h / 2],
+    [crop.x + crop.w, crop.y + crop.h / 2],
+    [crop.x, crop.y + crop.h],
+    [crop.x + crop.w / 2, crop.y + crop.h],
+    [crop.x + crop.w, crop.y + crop.h],
+  ];
+  points.forEach(([x, y]) => {
+    context.fillRect(x - handle / 2, y - handle / 2, handle, handle);
+    context.strokeRect(x - handle / 2, y - handle / 2, handle, handle);
+  });
+  context.restore();
+  updateCropRectMeta();
+}
+
+function cropCanvasPoint(event) {
+  const canvas = $("cropCanvas");
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: Math.max(0, Math.min(canvas.width, (event.clientX - rect.left) * canvas.width / rect.width)),
+    y: Math.max(0, Math.min(canvas.height, (event.clientY - rect.top) * canvas.height / rect.height)),
+    threshold: 12 * canvas.width / Math.max(1, rect.width),
+  };
+}
+
+function cropDragMode(point) {
+  const crop = state.cropTool.crop;
+  const nearLeft = Math.abs(point.x - crop.x) <= point.threshold;
+  const nearRight = Math.abs(point.x - (crop.x + crop.w)) <= point.threshold;
+  const nearTop = Math.abs(point.y - crop.y) <= point.threshold;
+  const nearBottom = Math.abs(point.y - (crop.y + crop.h)) <= point.threshold;
+  if (nearTop && nearLeft) return "nw";
+  if (nearTop && nearRight) return "ne";
+  if (nearBottom && nearLeft) return "sw";
+  if (nearBottom && nearRight) return "se";
+  if (nearTop && point.x >= crop.x && point.x <= crop.x + crop.w) return "n";
+  if (nearBottom && point.x >= crop.x && point.x <= crop.x + crop.w) return "s";
+  if (nearLeft && point.y >= crop.y && point.y <= crop.y + crop.h) return "w";
+  if (nearRight && point.y >= crop.y && point.y <= crop.y + crop.h) return "e";
+  if (point.x >= crop.x && point.x <= crop.x + crop.w && point.y >= crop.y && point.y <= crop.y + crop.h) return "move";
+  return "";
+}
+
+function beginCropDrag(event) {
+  if (!state.cropTool.crop) return;
+  const point = cropCanvasPoint(event);
+  const mode = cropDragMode(point);
+  if (!mode) return;
+  state.cropTool.drag = {
+    mode,
+    startX: point.x,
+    startY: point.y,
+    startCrop: {...state.cropTool.crop},
+  };
+  $("cropCanvas").setPointerCapture?.(event.pointerId);
+  event.preventDefault();
+}
+
+function moveCropDrag(event) {
+  const drag = state.cropTool.drag;
+  if (!drag) return;
+  const point = cropCanvasPoint(event);
+  const width = state.cropTool.sourceWidth;
+  const height = state.cropTool.sourceHeight;
+  const minWidth = Math.max(8, Math.round(width * 0.02));
+  const minHeight = Math.max(8, Math.round(height * 0.02));
+  const dx = point.x - drag.startX;
+  const dy = point.y - drag.startY;
+  let {x, y, w, h} = drag.startCrop;
+  if (drag.mode === "move") {
+    x = Math.max(0, Math.min(width - w, x + dx));
+    y = Math.max(0, Math.min(height - h, y + dy));
+  } else {
+    if (drag.mode.includes("w")) {
+      const right = x + w;
+      x = Math.max(0, Math.min(right - minWidth, x + dx));
+      w = right - x;
+    }
+    if (drag.mode.includes("e")) w = Math.max(minWidth, Math.min(width - x, w + dx));
+    if (drag.mode.includes("n")) {
+      const bottom = y + h;
+      y = Math.max(0, Math.min(bottom - minHeight, y + dy));
+      h = bottom - y;
+    }
+    if (drag.mode.includes("s")) h = Math.max(minHeight, Math.min(height - y, h + dy));
+  }
+  state.cropTool.crop = {
+    x: Math.round(x),
+    y: Math.round(y),
+    w: Math.round(w),
+    h: Math.round(h),
+  };
+  clearCropOutputs();
+  renderCropCanvas();
+  event.preventDefault();
+}
+
+function endCropDrag(event) {
+  if (!state.cropTool.drag) return;
+  state.cropTool.drag = null;
+  $("cropCanvas").releasePointerCapture?.(event.pointerId);
+}
+
+function applyTopCropPixels(rawPixels) {
+  if (!state.cropTool.sourceHeight) return;
+  const pixels = Math.max(0, Math.min(state.cropTool.sourceHeight - 1, Math.round(Number(rawPixels) || 0)));
+  state.cropTool.crop = {
+    x: 0,
+    y: pixels,
+    w: state.cropTool.sourceWidth,
+    h: state.cropTool.sourceHeight - pixels,
+  };
+  clearCropOutputs();
+  renderCropCanvas();
+}
+
+async function loadCropFile(file) {
+  if (!file) return;
+  state.cropTool.bitmap?.close?.();
+  const dataUrl = await fileToDataUrl(file);
+  const bitmap = await createImageBitmap(file);
+  state.cropTool.fileName = file.name;
+  state.cropTool.sourceDataUrl = dataUrl;
+  state.cropTool.bitmap = bitmap;
+  state.cropTool.sourceWidth = bitmap.width;
+  state.cropTool.sourceHeight = bitmap.height;
+  state.cropTool.crop = {x: 0, y: 0, w: bitmap.width, h: bitmap.height};
+  state.cropTool.drag = null;
+  $("cropSourceMeta").textContent = `${file.name} | ${bitmap.width} × ${bitmap.height}`;
+  $("cropEditorHint").textContent = "拖边、四角或框内区域自由调整";
+  $("cropCanvas").classList.remove("hidden");
+  $("cropCanvasEmpty").classList.add("hidden");
+  $("confirmCropBtn").disabled = false;
+  $("resetCropRectBtn").disabled = false;
+  clearCropOutputs();
+  renderCropCanvas();
+  toast("图片已载入，可以自由拖动裁剪");
+}
+
+function confirmCrop() {
+  const crop = state.cropTool.crop;
+  const bitmap = state.cropTool.bitmap;
+  if (!crop || !bitmap) return toast("请先选择图片", true);
+  const canvas = document.createElement("canvas");
+  canvas.width = crop.w;
+  canvas.height = crop.h;
+  const context = canvas.getContext("2d");
+  context.drawImage(bitmap, crop.x, crop.y, crop.w, crop.h, 0, 0, crop.w, crop.h);
+  state.cropTool.croppedDataUrl = canvas.toDataURL(cropMimeType(), 0.95);
+  state.cropTool.croppedWidth = crop.w;
+  state.cropTool.croppedHeight = crop.h;
+  state.cropTool.stitchedDataUrl = "";
+  $("croppedPreview").src = state.cropTool.croppedDataUrl;
+  $("croppedPreview").classList.remove("hidden");
+  $("croppedPreviewEmpty").classList.add("hidden");
+  $("cropResultMeta").textContent = `${crop.w} × ${crop.h} | 已确认`;
+  $("downloadCroppedBtn").disabled = false;
+  $("overwriteCroppedBtn").disabled = false;
+  $("cropStitchBtn").disabled = false;
+  $("downloadCropStitchBtn").disabled = true;
+  toast("裁剪已确认，可以保存或旋转拼接");
+}
+
+async function overwriteCroppedFile() {
+  if (!state.cropTool.croppedDataUrl) return toast("请先确认裁剪", true);
+  if (!window.confirm("覆盖文件后无法撤销。接下来请选择原文件，并在系统窗口中确认替换。")) return;
+  if (!window.showSaveFilePicker) {
+    downloadDataUrl(state.cropTool.croppedDataUrl, cropOutputName());
+    toast("当前浏览器不支持直接覆盖，已改为下载裁剪图", true);
+    return;
+  }
+  const mime = cropMimeType();
+  const extension = cropOutputName("").match(/\.[^.]+$/)?.[0] || ".png";
+  const handle = await window.showSaveFilePicker({
+    suggestedName: state.cropTool.fileName || cropOutputName(""),
+    types: [{description: "图片文件", accept: {[mime]: [extension]}}],
+  });
+  const response = await fetch(state.cropTool.croppedDataUrl);
+  const writable = await handle.createWritable();
+  await writable.write(await response.blob());
+  await writable.close();
+  toast("裁剪图已保存；如果选择的是原文件，它已经被覆盖");
+}
+
+async function stitchCroppedImage() {
+  if (!state.cropTool.croppedDataUrl) return toast("请先确认裁剪", true);
+  const button = $("cropStitchBtn");
+  button.disabled = true;
+  button.textContent = "拼接中...";
+  try {
+    const data = await api("/api/table-runner/compose", {
+      file_name: cropOutputName(),
+      data_url: state.cropTool.croppedDataUrl,
+    });
+    state.cropTool.stitchedDataUrl = data.data_url;
+    $("cropStitchPreview").src = data.data_url;
+    $("cropStitchPreview").classList.remove("hidden");
+    $("cropStitchPreviewEmpty").classList.add("hidden");
+    $("downloadCropStitchBtn").disabled = false;
+    toast("旋转拼接完成：原裁剪图在下方");
+  } finally {
+    button.disabled = false;
+    button.textContent = "旋转拼接";
+  }
+}
+
+function resetCropRect() {
+  if (!state.cropTool.bitmap) return;
+  state.cropTool.crop = {
+    x: 0,
+    y: 0,
+    w: state.cropTool.sourceWidth,
+    h: state.cropTool.sourceHeight,
+  };
+  clearCropOutputs();
+  renderCropCanvas();
+}
+
+function resetCropTool() {
+  state.cropTool.bitmap?.close?.();
+  Object.assign(state.cropTool, {
+    fileName: "",
+    sourceDataUrl: "",
+    bitmap: null,
+    sourceWidth: 0,
+    sourceHeight: 0,
+    crop: null,
+    drag: null,
+    croppedDataUrl: "",
+    croppedWidth: 0,
+    croppedHeight: 0,
+    stitchedDataUrl: "",
+  });
+  $("cropInput").value = "";
+  $("cropSourceMeta").textContent = "未选择图片";
+  $("cropRectMeta").textContent = "裁剪范围：等待图片";
+  $("cropEditorHint").textContent = "拖入图片后开始";
+  $("cropTopPercent").value = 0;
+  $("cropTopPercentValue").textContent = "0%";
+  $("cropTopPixels").value = 0;
+  $("cropCanvas").classList.add("hidden");
+  $("cropCanvasEmpty").classList.remove("hidden");
+  $("confirmCropBtn").disabled = true;
+  $("resetCropRectBtn").disabled = true;
+  clearCropOutputs();
 }
 
 function renderUploadFiles() {
@@ -2509,6 +3184,69 @@ function bindEvents() {
   $("resetTableRunnerBtn").addEventListener("click", resetTableRunner);
   $("refreshTableRunnerHistoryBtn").addEventListener("click", () => run(refreshTableRunnerHistory));
 
+  $("halfSwapInput").addEventListener("change", (event) => run(() => loadHalfSwapFiles(event.target.files)));
+  bindFileDropZone("halfSwapDropZone", (files) => {
+    $("halfSwapInput").value = "";
+    run(() => loadHalfSwapFiles(files));
+  });
+  $("halfSwapPreviewBtn").addEventListener("click", () => run(() => previewHalfSwap()));
+  $("halfSwapSaveBtn").addEventListener("click", () => run(saveHalfSwapBatch));
+  $("halfSwapClearBtn").addEventListener("click", clearHalfSwap);
+  $("halfSwapSuffix").addEventListener("input", () => {
+    if (state.halfSwap.files.length) run(() => previewHalfSwap());
+  });
+  $("halfSwapOutputDir").addEventListener("change", () => {
+    if (state.halfSwap.files.length) run(() => previewHalfSwap());
+  });
+
+  $("ratioStitchInput").addEventListener("change", (event) => run(() => loadRatioStitchFiles(event.target.files)));
+  $("ratioStitchFolderInput").addEventListener("change", (event) => run(() => loadRatioStitchFiles(event.target.files)));
+  bindFileDropZone("ratioStitchDropZone", (files) => {
+    $("ratioStitchInput").value = "";
+    run(() => loadRatioStitchFiles(files));
+  });
+  $("ratioStitchPreviewBtn").addEventListener("click", refreshRatioStitchPreview);
+  $("ratioStitchSaveBtn").addEventListener("click", () => run(saveRatioStitchBatch));
+  $("ratioStitchClearBtn").addEventListener("click", clearRatioStitch);
+  ["ratioStitchWidth", "ratioStitchHeight", "ratioStitchSuffix", "ratioStitchOutputDir"].forEach((id) => {
+    $(id).addEventListener("input", () => {
+      if (id === "ratioStitchOutputDir") {
+        localStorage.setItem("ratioStitchOutputDir", $(id).value);
+      }
+      refreshRatioStitchPreview();
+    });
+  });
+
+  $("cropInput").addEventListener("change", (event) => run(() => loadCropFile(event.target.files[0])));
+  bindFileDropZone("cropDropZone", (files) => {
+    $("cropInput").value = "";
+    run(() => loadCropFile(files[0]));
+  });
+  $("cropTopPercent").addEventListener("input", (event) => {
+    if (!state.cropTool.sourceHeight) return;
+    const percent = Number(event.target.value) || 0;
+    applyTopCropPixels(state.cropTool.sourceHeight * percent / 100);
+  });
+  $("cropTopPixels").addEventListener("change", (event) => applyTopCropPixels(event.target.value));
+  $("confirmCropBtn").addEventListener("click", confirmCrop);
+  $("resetCropRectBtn").addEventListener("click", resetCropRect);
+  $("resetCropToolBtn").addEventListener("click", resetCropTool);
+  $("downloadCroppedBtn").addEventListener("click", () => {
+    if (!state.cropTool.croppedDataUrl) return toast("请先确认裁剪", true);
+    downloadDataUrl(state.cropTool.croppedDataUrl, cropOutputName());
+  });
+  $("overwriteCroppedBtn").addEventListener("click", () => run(overwriteCroppedFile));
+  $("cropStitchBtn").addEventListener("click", () => run(stitchCroppedImage));
+  $("downloadCropStitchBtn").addEventListener("click", () => {
+    if (!state.cropTool.stitchedDataUrl) return toast("请先完成旋转拼接", true);
+    const base = cropOutputName("").replace(/\.[^.]+$/, "");
+    downloadDataUrl(state.cropTool.stitchedDataUrl, `${base}_672x3648.png`);
+  });
+  $("cropCanvas").addEventListener("pointerdown", beginCropDrag);
+  $("cropCanvas").addEventListener("pointermove", moveCropDrag);
+  $("cropCanvas").addEventListener("pointerup", endCropDrag);
+  $("cropCanvas").addEventListener("pointercancel", endCropDrag);
+
   $("uploadInput").addEventListener("change", (event) => {
     state.uploadFiles = imageFilesFrom(event.target.files);
     renderUploadFiles();
@@ -2613,6 +3351,8 @@ async function run(fn) {
 }
 
 async function boot() {
+  const savedRatioOutputDir = localStorage.getItem("ratioStitchOutputDir");
+  if (savedRatioOutputDir) $("ratioStitchOutputDir").value = savedRatioOutputDir;
   bindEvents();
   bindUnitPanelResize();
   updateUnitMeta();
@@ -2620,6 +3360,8 @@ async function boot() {
   renderMarkdownPreview();
   setDocMode("edit");
   renderUploadFiles();
+  renderHalfSwapFiles();
+  renderRatioStitchFiles();
   renderImageCanvas();
   try {
     const data = await api("/api/health");

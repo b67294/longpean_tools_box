@@ -1,6 +1,13 @@
 {
   "categories": [
     {
+      "id": "0974270c1c734cfb9e1abbfc19139a15",
+      "name": "1号雪梨纸-镜像版",
+      "parent_id": "5ef8e18c11604318855db225020c512a",
+      "created_at": "2026-08-03 16:30:58",
+      "updated_at": "2026-08-03 16:30:58"
+    },
+    {
       "id": "e00337e75dd04450b66c3e0689a2c9d2",
       "name": "2号雪梨纸+信封-主图-阴影和描边和孔",
       "parent_id": "5ef8e18c11604318855db225020c512a",
@@ -30,6 +37,42 @@
     }
   ],
   "assets": [
+    {
+      "id": "cae9e76570c04a4f902cd039b104993c",
+      "category_id": "5ef8e18c11604318855db225020c512a",
+      "name": "尺寸图修改.png",
+      "url": "https://pspk.longpean.com/57cd2ac3-3da0-4ff9-b260-b69110992b7c.png",
+      "preview_url": "https://pspk.longpean.com/57cd2ac3-3da0-4ff9-b260-b69110992b7c.png",
+      "created_at": "2026-07-29 11:37:20",
+      "updated_at": "2026-07-29 11:37:20"
+    },
+    {
+      "id": "422161d5fd48446782d8e2ac39296b5c",
+      "category_id": "e00337e75dd04450b66c3e0689a2c9d2",
+      "name": "尺寸图阴影.png",
+      "url": "https://pspk.longpean.com/883ff00a-2368-4527-b4ec-5a74d8056312.png",
+      "preview_url": "https://pspk.longpean.com/883ff00a-2368-4527-b4ec-5a74d8056312.png",
+      "created_at": "2026-07-22 17:05:47",
+      "updated_at": "2026-07-22 17:05:47"
+    },
+    {
+      "id": "6efaa7f2cc2c43cea2460187e4f996e1",
+      "category_id": "e00337e75dd04450b66c3e0689a2c9d2",
+      "name": "细节图阴影.png",
+      "url": "https://pspk.longpean.com/50cb8f73-5413-4b22-8370-39c58113e035.png",
+      "preview_url": "https://pspk.longpean.com/50cb8f73-5413-4b22-8370-39c58113e035.png",
+      "created_at": "2026-07-22 16:35:09",
+      "updated_at": "2026-07-22 16:35:09"
+    },
+    {
+      "id": "ddfb1e76e2c045cd809787e73293f93f",
+      "category_id": "e00337e75dd04450b66c3e0689a2c9d2",
+      "name": "主图描边.png",
+      "url": "https://pspk.longpean.com/e5c39a3b-0236-4569-b2ae-164ff17951b7.png",
+      "preview_url": "https://pspk.longpean.com/e5c39a3b-0236-4569-b2ae-164ff17951b7.png",
+      "created_at": "2026-07-20 10:06:12",
+      "updated_at": "2026-07-20 10:06:12"
+    },
     {
       "id": "4246ae849b7c4d4b9375f1722724a217",
       "category_id": "e00337e75dd04450b66c3e0689a2c9d2",
@@ -139,13 +182,67 @@
       "updated_at": "2026-07-15 10:12:24"
     },
     {
-      "id": "ddfb1e76e2c045cd809787e73293f93f",
-      "category_id": "e00337e75dd04450b66c3e0689a2c9d2",
-      "name": "主图描边.png",
-      "url": "https://pspk.longpean.com/e5c39a3b-0236-4569-b2ae-164ff17951b7.png",
-      "preview_url": "https://pspk.longpean.com/e5c39a3b-0236-4569-b2ae-164ff17951b7.png",
-      "created_at": "2026-07-20 10:06:12",
-      "updated_at": "2026-07-20 10:06:12"
+      "id": "dd6532495f384addb3884505892cc4e8",
+      "category_id": "0974270c1c734cfb9e1abbfc19139a15",
+      "name": "3.png",
+      "url": "https://pspk.longpean.com/18c457bd-9d48-4825-a412-43ac1f9dab44.png",
+      "preview_url": "https://pspk.longpean.com/18c457bd-9d48-4825-a412-43ac1f9dab44.png",
+      "created_at": "2026-08-03 16:31:32",
+      "updated_at": "2026-08-03 16:31:32"
+    },
+    {
+      "id": "1e083e21393a47069028361fcc4d445b",
+      "category_id": "0974270c1c734cfb9e1abbfc19139a15",
+      "name": "4.png",
+      "url": "https://pspk.longpean.com/49336c2c-806f-42a9-adc4-61d1e48df67a.png",
+      "preview_url": "https://pspk.longpean.com/49336c2c-806f-42a9-adc4-61d1e48df67a.png",
+      "created_at": "2026-08-03 16:31:32",
+      "updated_at": "2026-08-03 16:31:32"
+    },
+    {
+      "id": "9306145d605949f9936e7d8696eba412",
+      "category_id": "0974270c1c734cfb9e1abbfc19139a15",
+      "name": "5.png",
+      "url": "https://pspk.longpean.com/b683b68b-f89c-40d8-87ad-8f618808113d.png",
+      "preview_url": "https://pspk.longpean.com/b683b68b-f89c-40d8-87ad-8f618808113d.png",
+      "created_at": "2026-08-03 16:31:32",
+      "updated_at": "2026-08-03 16:31:32"
+    },
+    {
+      "id": "3c164316e2594184bdf1b0f1c3ddef0d",
+      "category_id": "0974270c1c734cfb9e1abbfc19139a15",
+      "name": "6.png",
+      "url": "https://pspk.longpean.com/0bfa490b-eb98-4900-be36-355282047401.png",
+      "preview_url": "https://pspk.longpean.com/0bfa490b-eb98-4900-be36-355282047401.png",
+      "created_at": "2026-08-03 16:31:32",
+      "updated_at": "2026-08-03 16:31:32"
+    },
+    {
+      "id": "f819a4cc0c794a869e671fb83661b959",
+      "category_id": "0974270c1c734cfb9e1abbfc19139a15",
+      "name": "阴影侧面.png",
+      "url": "https://pspk.longpean.com/63025a14-fca4-4095-9224-22d93607c768.png",
+      "preview_url": "https://pspk.longpean.com/63025a14-fca4-4095-9224-22d93607c768.png",
+      "created_at": "2026-08-03 16:31:32",
+      "updated_at": "2026-08-03 16:31:32"
+    },
+    {
+      "id": "ff01d2008dae4507af7d47c4f21e4cd4",
+      "category_id": "0974270c1c734cfb9e1abbfc19139a15",
+      "name": "褶皱侧面.png",
+      "url": "https://pspk.longpean.com/164e57a6-4426-403c-9347-8a1f994e71d3.png",
+      "preview_url": "https://pspk.longpean.com/164e57a6-4426-403c-9347-8a1f994e71d3.png",
+      "created_at": "2026-08-03 16:31:32",
+      "updated_at": "2026-08-03 16:31:32"
+    },
+    {
+      "id": "b472ba1f0caa4cfe9d904353f609a400",
+      "category_id": "0974270c1c734cfb9e1abbfc19139a15",
+      "name": "白侧面.png",
+      "url": "https://pspk.longpean.com/c183fce0-ddd0-473e-b9fe-7df99ebda1e4.png",
+      "preview_url": "https://pspk.longpean.com/c183fce0-ddd0-473e-b9fe-7df99ebda1e4.png",
+      "created_at": "2026-08-03 16:31:32",
+      "updated_at": "2026-08-03 16:31:32"
     }
   ],
   "groups": [

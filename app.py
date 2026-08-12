@@ -17,7 +17,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ImageOps
 
 from wiki_client import (
     WikiClient,
@@ -191,6 +191,30 @@ class ImagePayload(BaseModel):
 class UploadImagePayload(BaseModel):
     file_name: str
     data_url: str
+
+
+class HalfSwapImagePayload(BaseModel):
+    file_name: str
+    data_url: str
+
+
+class HalfSwapPayload(BaseModel):
+    output_dir: str = ""
+    suffix: str = "-halfswap"
+    images: list[HalfSwapImagePayload]
+
+
+class RatioStitchImagePayload(BaseModel):
+    file_name: str
+    data_url: str
+
+
+class RatioStitchPayload(BaseModel):
+    output_dir: str = ""
+    ratio_width: int = 500
+    ratio_height: int = 43
+    suffix: str = "_500x43"
+    images: list[RatioStitchImagePayload]
 
 
 class UploadPayload(BaseModel):
@@ -793,6 +817,92 @@ def open_data_url_image(data_url: str) -> Image.Image:
         return image.convert("RGB")
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"无法读取图片: {exc}") from exc
+
+
+def open_data_url_rgba_image(data_url: str) -> Image.Image:
+    image_bytes = decode_data_url(data_url)
+    try:
+        image = Image.open(io.BytesIO(image_bytes))
+        image.load()
+        return image.convert("RGBA")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Cannot read image: {exc}") from exc
+
+
+def half_swap_image(source: Image.Image) -> Image.Image:
+    image = source.convert("RGBA")
+    width, height = image.size
+    if width < 2:
+        raise HTTPException(status_code=400, detail="图片宽度必须大于 1px")
+    mid = width // 2
+    swapped = Image.new("RGBA", (width, height))
+    swapped.paste(image.crop((mid, 0, width, height)), (0, 0))
+    swapped.paste(image.crop((0, 0, mid, height)), (width - mid, 0))
+    return swapped
+
+
+def ratio_stitch_plan(width: int, height: int, ratio_width: int, ratio_height: int) -> dict[str, int]:
+    if width <= 0 or height <= 0:
+        raise ValueError("图片宽高必须大于 0")
+    if ratio_width <= 0 or ratio_height <= 0:
+        raise ValueError("目标比例必须是正整数")
+    numerator = ratio_width * height
+    denominator = ratio_height * width
+    repeat_count = max(1, (numerator + denominator - 1) // denominator)
+    if repeat_count > 100:
+        raise ValueError(f"需要拼接 {repeat_count} 次，超过安全上限 100")
+    stitched_width = width * repeat_count
+    if stitched_width * height > 500_000_000:
+        raise ValueError("拼接结果超过 5 亿像素，请先缩小原图或降低目标横宽比")
+    crop_width = (numerator * 2 + ratio_height) // (ratio_height * 2)
+    excess = stitched_width - crop_width
+    if excess < 0:
+        raise AssertionError("拼接后的宽度小于目标裁剪宽度")
+    crop_left = excess // 2
+    crop_right = excess - crop_left
+    return {
+        "repeat_count": repeat_count,
+        "stitched_width": stitched_width,
+        "stitched_height": height,
+        "crop_width": crop_width,
+        "crop_height": height,
+        "crop_left": crop_left,
+        "crop_right": crop_right,
+    }
+
+
+def ratio_stitch_image(source: Image.Image, ratio_width: int, ratio_height: int) -> tuple[Image.Image, dict[str, int]]:
+    image = ImageOps.exif_transpose(source)
+    image.load()
+    plan = ratio_stitch_plan(image.width, image.height, ratio_width, ratio_height)
+    stitched = Image.new(image.mode, (plan["stitched_width"], image.height))
+    for index in range(plan["repeat_count"]):
+        stitched.paste(image, (index * image.width, 0))
+    result = stitched.crop((plan["crop_left"], 0, plan["stitched_width"] - plan["crop_right"], image.height))
+    if result.size != (plan["crop_width"], plan["crop_height"]):
+        raise AssertionError(f"裁剪结果尺寸异常: {result.size}")
+    return result, plan
+
+
+def safe_ratio_stitch_name(file_name: str, suffix: str, ratio_width: int, ratio_height: int) -> str:
+    path = Path(file_name or "image.png")
+    safe_stem = re.sub(r'[\\/:*?"<>|]+', "-", path.stem).strip(" .") or "image"
+    clean_suffix = re.sub(r'[\\/:*?"<>|]+', "-", suffix.strip()).strip(" .")
+    if not clean_suffix:
+        clean_suffix = f"_{ratio_width}x{ratio_height}"
+    return f"{safe_stem}{clean_suffix}.png"
+
+
+def safe_output_file_name(file_name: str, suffix: str = "-halfswap") -> str:
+    path = Path(file_name or "image.png")
+    stem = path.stem or "image"
+    clean_suffix = (suffix or "-halfswap").strip() or "-halfswap"
+    extension = path.suffix.lower()
+    if extension not in {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}:
+        extension = ".png"
+    safe_stem = re.sub(r'[\\/:*?"<>|]+', "-", stem).strip(" .") or "image"
+    safe_suffix = re.sub(r'[\\/:*?"<>|]+', "-", clean_suffix).strip(" .") or "-halfswap"
+    return f"{safe_stem}{safe_suffix}.png"
 
 
 def compose_table_runner(source: Image.Image) -> tuple[Image.Image, Image.Image, dict[str, Any]]:
@@ -1755,6 +1865,108 @@ def compose_table_runner_endpoint(payload: TableRunnerComposePayload) -> dict[st
     source = open_data_url_image(payload.data_url)
     _half, full, meta = compose_table_runner(source)
     return {"data_url": image_to_data_url(full), **meta}
+
+
+@app.post("/api/half-swap/process")
+def process_half_swap(payload: HalfSwapPayload) -> dict[str, Any]:
+    if not payload.images:
+        raise HTTPException(status_code=400, detail="请先选择图片")
+    output_dir_text = payload.output_dir.strip()
+    if not output_dir_text:
+        raise HTTPException(status_code=400, detail="请填写输出文件夹")
+    output_dir = Path(output_dir_text).expanduser()
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"无法创建输出文件夹: {exc}") from exc
+    if not output_dir.is_dir():
+        raise HTTPException(status_code=400, detail="输出路径不是文件夹")
+
+    results = []
+    used_names: set[str] = set()
+    for item in payload.images:
+        try:
+            source = open_data_url_rgba_image(item.data_url)
+            swapped = half_swap_image(source)
+            output_name = safe_output_file_name(item.file_name, payload.suffix)
+            if output_name in used_names or (output_dir / output_name).exists():
+                base = Path(output_name).stem
+                index = 2
+                while True:
+                    candidate = f"{base}-{index}.png"
+                    if candidate not in used_names and not (output_dir / candidate).exists():
+                        output_name = candidate
+                        break
+                    index += 1
+            used_names.add(output_name)
+            output_path = output_dir / output_name
+            swapped.save(output_path, format="PNG", optimize=True)
+            results.append(
+                {
+                    "file_name": item.file_name,
+                    "ok": True,
+                    "output_path": str(output_path),
+                    "width": swapped.width,
+                    "height": swapped.height,
+                    "data_url": image_to_data_url(swapped),
+                }
+            )
+        except Exception as exc:
+            results.append({"file_name": item.file_name, "ok": False, "error": str(exc)})
+    return {"output_dir": str(output_dir), "results": results}
+
+
+@app.post("/api/ratio-stitch/process")
+def process_ratio_stitch(payload: RatioStitchPayload) -> dict[str, Any]:
+    if not payload.images:
+        raise HTTPException(status_code=400, detail="请先选择图片")
+    if payload.ratio_width <= 0 or payload.ratio_height <= 0:
+        raise HTTPException(status_code=400, detail="目标比例必须是正整数")
+    output_dir_text = payload.output_dir.strip()
+    if not output_dir_text:
+        raise HTTPException(status_code=400, detail="请填写输出文件夹")
+    output_dir = Path(output_dir_text).expanduser()
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"无法创建输出文件夹: {exc}") from exc
+    if not output_dir.is_dir():
+        raise HTTPException(status_code=400, detail="输出路径不是文件夹")
+
+    results = []
+    used_names: set[str] = set()
+    for item in payload.images:
+        try:
+            source = open_data_url_rgba_image(item.data_url)
+            result, plan = ratio_stitch_image(source, payload.ratio_width, payload.ratio_height)
+            output_name = safe_ratio_stitch_name(
+                item.file_name, payload.suffix, payload.ratio_width, payload.ratio_height
+            )
+            if output_name in used_names or (output_dir / output_name).exists():
+                base = Path(output_name).stem
+                index = 2
+                while True:
+                    candidate = f"{base}-{index}.png"
+                    if candidate not in used_names and not (output_dir / candidate).exists():
+                        output_name = candidate
+                        break
+                    index += 1
+            used_names.add(output_name)
+            output_path = output_dir / output_name
+            result.save(output_path, format="PNG", compress_level=6)
+            results.append(
+                {
+                    "file_name": item.file_name,
+                    "ok": True,
+                    "output_path": str(output_path),
+                    "width": result.width,
+                    "height": result.height,
+                    **plan,
+                }
+            )
+        except Exception as exc:
+            results.append({"file_name": item.file_name, "ok": False, "error": str(exc)})
+    return {"output_dir": str(output_dir.resolve()), "results": results}
 
 
 @app.get("/api/table-runners")
