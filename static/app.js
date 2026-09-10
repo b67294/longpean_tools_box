@@ -38,6 +38,12 @@ const state = {
     previewHeight: 0,
     results: [],
   },
+  paperStitch: {
+    fileName: "",
+    bitmap: null,
+    width: 0,
+    height: 0,
+  },
   ratioStitch: {
     files: [],
     selectedIndex: 0,
@@ -224,7 +230,8 @@ function setView(viewName) {
     "wiki-json": "Wiki JSON",
     image: "图片透明化",
     "table-runner": "桌旗旋转拼接",
-    "half-swap": "Half Swap",
+    "half-swap": "无缝包装纸修复",
+    "paper-stitch": "包装纸拼接",
     "ratio-stitch": "比例拼接与自动裁剪",
     "image-crop": "图片裁剪拼接",
     upload: "批量上传",
@@ -760,6 +767,8 @@ function renderHalfSwapFiles() {
   box.classList.toggle("empty", files.length === 0);
   $("halfSwapPreviewBtn").disabled = files.length === 0;
   $("halfSwapSaveBtn").disabled = files.length === 0;
+  $("seamlessPaperPreviewBtn").disabled = files.length === 0;
+  $("seamlessPaperSaveBtn").disabled = files.length === 0;
   if (!files.length) {
     box.textContent = "未选择文件";
     $("halfSwapMeta").textContent = "等待图片";
@@ -835,6 +844,105 @@ function halfSwapDataUrl(dataUrl) {
   });
 }
 
+function seamlessPaperSettings() {
+  const mode = $("seamlessPaperMode").value;
+  return {
+    mode,
+    applyHalfSwap: $("seamlessPaperInputSource").value === "half-swap",
+    blackRatio: Math.max(0.1, Math.min(100, Number($("seamlessPaperBlackRatio").value) || 8)),
+    maskRatio: Math.max(0.1, Math.min(100, Number($("seamlessPaperMaskRatio").value) || 13)),
+    suffix: $("seamlessPaperSuffix").value.trim() || (mode === "klein" ? "-klein-input" : "-fill-input"),
+  };
+}
+
+function seamlessPaperDataUrl(dataUrl, settings) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = async () => {
+      try {
+        let sourceUrl = dataUrl;
+        if (settings.applyHalfSwap) sourceUrl = (await halfSwapDataUrl(dataUrl)).dataUrl;
+        const source = new Image();
+        source.onload = () => {
+          const canvas = document.createElement("canvas");
+          canvas.width = source.naturalWidth;
+          canvas.height = source.naturalHeight;
+          const ctx = canvas.getContext("2d");
+          ctx.drawImage(source, 0, 0);
+          const width = canvas.width;
+          const height = canvas.height;
+          let blackWidth = Math.ceil((width * settings.blackRatio / 100) / 8) * 8;
+          let maskWidth = Math.ceil((width * settings.maskRatio / 100) / 8) * 8;
+          if (settings.mode === "klein") {
+            blackWidth = Math.min(width, Math.max(96, blackWidth));
+            maskWidth = Math.min(width, Math.max(maskWidth, blackWidth + 64));
+            ctx.fillStyle = "#000";
+            ctx.fillRect(Math.floor((width - blackWidth) / 2), 0, blackWidth, height);
+          }
+          maskWidth = Math.min(width, maskWidth);
+          const pixels = ctx.getImageData(0, 0, width, height);
+          const left = Math.floor((width - maskWidth) / 2);
+          const right = left + maskWidth;
+          for (let y = 0; y < height; y += 1) {
+            for (let x = left; x < right; x += 1) pixels.data[(y * width + x) * 4 + 3] = 0;
+          }
+          ctx.putImageData(pixels, 0, 0);
+          resolve({ dataUrl: canvas.toDataURL("image/png"), width, height, blackWidth: settings.mode === "klein" ? blackWidth : 0, maskWidth });
+        };
+        source.onerror = () => reject(new Error("无法读取预处理图片"));
+        source.src = sourceUrl;
+      } catch (error) { reject(error); }
+    };
+    image.onerror = () => reject(new Error("无法读取图片"));
+    image.src = dataUrl;
+  });
+}
+
+async function previewSeamlessPaper() {
+  const item = state.halfSwap.files[state.halfSwap.selectedIndex];
+  if (!item) return toast("请先选择图片", true);
+  const settings = seamlessPaperSettings();
+  const result = await seamlessPaperDataUrl(item.dataUrl, settings);
+  $("halfSwapPreview").src = result.dataUrl;
+  $("halfSwapPreview").classList.remove("hidden");
+  $("halfSwapPreviewEmpty").classList.add("hidden");
+  $("halfSwapMeta").textContent = `${settings.mode.toUpperCase()} | ${result.width} × ${result.height}`;
+  $("halfSwapLog").textContent = `模式：${settings.mode}\n输入来源：${settings.applyHalfSwap ? "Half Swap 结果" : "当前原图"}\n黑条：${result.blackWidth}px\nMask：${result.maskWidth}px`;
+}
+
+async function saveSeamlessPaperBatch() {
+  if (!state.halfSwap.files.length) return toast("请先选择图片", true);
+  const outputDir = $("halfSwapOutputDir").value.trim();
+  if (!outputDir) return toast("请填写输出文件夹", true);
+  const settings = seamlessPaperSettings();
+  const button = $("seamlessPaperSaveBtn");
+  button.disabled = true;
+  button.textContent = "处理中...";
+  try {
+    const data = await api("/api/seamless-paper/process", {
+      output_dir: outputDir,
+      suffix: settings.suffix,
+      mode: settings.mode,
+      apply_half_swap: settings.applyHalfSwap,
+      black_ratio: settings.blackRatio,
+      mask_ratio: settings.maskRatio,
+      images: state.halfSwap.files.map((item) => ({ file_name: item.file.name, data_url: item.dataUrl })),
+    });
+    state.halfSwap.results = data.results || [];
+    $("halfSwapLog").textContent = state.halfSwap.results.map((item) => item.ok ? `${item.file_name} -> ${item.output_path}` : `${item.file_name} -> 失败：${item.error}`).join("\n");
+    const first = state.halfSwap.results.find((item) => item.ok && item.data_url);
+    if (first) {
+      $("halfSwapPreview").src = first.data_url;
+      $("halfSwapPreview").classList.remove("hidden");
+      $("halfSwapPreviewEmpty").classList.add("hidden");
+    }
+    toast(`批量预处理完成：${state.halfSwap.results.filter((item) => item.ok).length} 张`);
+  } finally {
+    button.disabled = state.halfSwap.files.length === 0;
+    button.textContent = "批量预处理保存";
+  }
+}
+
 async function previewHalfSwap(index = state.halfSwap.selectedIndex) {
   const item = state.halfSwap.files[index];
   if (!item) {
@@ -904,6 +1012,135 @@ function clearHalfSwap() {
   $("halfSwapInput").value = "";
   renderHalfSwapFiles();
   toast("Half swap 已清空");
+}
+
+function paperStitchCount(inputId, fallback) {
+  const input = $(inputId);
+  const minimum = Number(input.min) || 1;
+  const maximum = Number(input.max) || 20;
+  const value = Math.max(minimum, Math.min(maximum, Math.round(Number(input.value) || fallback)));
+  input.value = String(value);
+  return value;
+}
+
+function paperStitchSettings() {
+  return {
+    columns: paperStitchCount("paperStitchColumns", 2),
+    rows: paperStitchCount("paperStitchRows", 1),
+  };
+}
+
+function paperStitchOutputName() {
+  const dot = state.paperStitch.fileName.lastIndexOf(".");
+  const base = dot > 0 ? state.paperStitch.fileName.slice(0, dot) : state.paperStitch.fileName;
+  const safeBase = (base || "wrapping-paper").replace(/[\\/:*?"<>|]+/g, "-");
+  const { columns, rows } = paperStitchSettings();
+  return `${safeBase}-${columns}x${rows}.png`;
+}
+
+function drawPaperStitch(canvas, width, height) {
+  const bitmap = state.paperStitch.bitmap;
+  if (!bitmap) return;
+  const { columns, rows } = paperStitchSettings();
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.clearRect(0, 0, width, height);
+  for (let row = 0; row < rows; row += 1) {
+    const top = Math.round(row * height / rows);
+    const bottom = Math.round((row + 1) * height / rows);
+    for (let column = 0; column < columns; column += 1) {
+      const left = Math.round(column * width / columns);
+      const right = Math.round((column + 1) * width / columns);
+      ctx.drawImage(bitmap, 0, 0, bitmap.width, bitmap.height, left, top, right - left, bottom - top);
+    }
+  }
+}
+
+function renderPaperStitchPreview() {
+  const bitmap = state.paperStitch.bitmap;
+  const { columns, rows } = paperStitchSettings();
+  $("paperStitchGridSize").textContent = `${columns} × ${rows}`;
+  if (!bitmap) {
+    $("paperStitchSourceSize").textContent = "-";
+    $("paperStitchOutputSize").textContent = "-";
+    $("paperStitchMeta").textContent = "等待图片";
+    $("paperStitchPreview").classList.add("hidden");
+    $("paperStitchPreviewEmpty").classList.remove("hidden");
+    $("paperStitchDownloadBtn").disabled = true;
+    return;
+  }
+
+  const outputWidth = state.paperStitch.width * columns;
+  const outputHeight = state.paperStitch.height * rows;
+  const maxPreviewWidth = 1600;
+  const maxPreviewHeight = 1000;
+  const scale = Math.min(1, maxPreviewWidth / outputWidth, maxPreviewHeight / outputHeight);
+  const previewTileWidth = Math.max(1, Math.round(state.paperStitch.width * scale));
+  const previewTileHeight = Math.max(1, Math.round(state.paperStitch.height * scale));
+  const previewWidth = previewTileWidth * columns;
+  const previewHeight = previewTileHeight * rows;
+  drawPaperStitch($("paperStitchPreview"), previewWidth, previewHeight);
+  $("paperStitchPreview").classList.remove("hidden");
+  $("paperStitchPreviewEmpty").classList.add("hidden");
+  $("paperStitchDownloadBtn").disabled = false;
+  $("paperStitchSourceSize").textContent = `${state.paperStitch.width} × ${state.paperStitch.height}`;
+  $("paperStitchOutputSize").textContent = `${outputWidth} × ${outputHeight}`;
+  $("paperStitchMeta").textContent = `${state.paperStitch.fileName} · ${columns} × ${rows}`;
+}
+
+async function loadPaperStitchFile(file) {
+  if (!file || !file.type.startsWith("image/")) return toast("请选择图片文件", true);
+  state.paperStitch.bitmap?.close?.();
+  const bitmap = await createImageBitmap(file);
+  state.paperStitch.fileName = file.name;
+  state.paperStitch.bitmap = bitmap;
+  state.paperStitch.width = bitmap.width;
+  state.paperStitch.height = bitmap.height;
+  $("paperStitchSourceMeta").textContent = `${file.name} · ${bitmap.width} × ${bitmap.height}`;
+  renderPaperStitchPreview();
+  toast("图片已载入，拼接预览已更新");
+}
+
+function adjustPaperStitchCount(inputId, delta) {
+  const input = $(inputId);
+  input.value = String((Number(input.value) || 1) + delta);
+  renderPaperStitchPreview();
+}
+
+function resetPaperStitch() {
+  state.paperStitch.bitmap?.close?.();
+  state.paperStitch.fileName = "";
+  state.paperStitch.bitmap = null;
+  state.paperStitch.width = 0;
+  state.paperStitch.height = 0;
+  $("paperStitchInput").value = "";
+  $("paperStitchColumns").value = "2";
+  $("paperStitchRows").value = "1";
+  $("paperStitchSourceMeta").textContent = "未选择图片";
+  renderPaperStitchPreview();
+  toast("包装纸拼接已重置");
+}
+
+function downloadPaperStitch() {
+  if (!state.paperStitch.bitmap) return toast("请先选择图片", true);
+  const { columns, rows } = paperStitchSettings();
+  const outputWidth = state.paperStitch.width * columns;
+  const outputHeight = state.paperStitch.height * rows;
+  if (outputWidth > 32767 || outputHeight > 32767 || outputWidth * outputHeight > 200_000_000) {
+    return toast("输出尺寸过大，请减少横向或竖向拼接次数", true);
+  }
+  const canvas = document.createElement("canvas");
+  drawPaperStitch(canvas, outputWidth, outputHeight);
+  canvas.toBlob((blob) => {
+    if (!blob) return toast("生成下载文件失败", true);
+    const url = URL.createObjectURL(blob);
+    downloadDataUrl(url, paperStitchOutputName());
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast(`已生成 ${outputWidth} × ${outputHeight} PNG`);
+  }, "image/png");
 }
 
 function ratioStitchSettings() {
@@ -3191,6 +3428,13 @@ function bindEvents() {
   });
   $("halfSwapPreviewBtn").addEventListener("click", () => run(() => previewHalfSwap()));
   $("halfSwapSaveBtn").addEventListener("click", () => run(saveHalfSwapBatch));
+  $("seamlessPaperPreviewBtn").addEventListener("click", () => run(previewSeamlessPaper));
+  $("seamlessPaperSaveBtn").addEventListener("click", () => run(saveSeamlessPaperBatch));
+  $("seamlessPaperMode").addEventListener("change", () => {
+    const mode = $("seamlessPaperMode").value;
+    $("seamlessPaperBlackRatio").disabled = mode === "fill";
+    $("seamlessPaperSuffix").value = mode === "klein" ? "-klein-input" : "-fill-input";
+  });
   $("halfSwapClearBtn").addEventListener("click", clearHalfSwap);
   $("halfSwapSuffix").addEventListener("input", () => {
     if (state.halfSwap.files.length) run(() => previewHalfSwap());
@@ -3198,6 +3442,22 @@ function bindEvents() {
   $("halfSwapOutputDir").addEventListener("change", () => {
     if (state.halfSwap.files.length) run(() => previewHalfSwap());
   });
+
+  $("paperStitchInput").addEventListener("change", (event) => run(() => loadPaperStitchFile(event.target.files[0])));
+  bindFileDropZone("paperStitchDropZone", (files) => {
+    $("paperStitchInput").value = "";
+    run(() => loadPaperStitchFile(files[0]));
+  });
+  $("paperStitchColumnsMinus").addEventListener("click", () => adjustPaperStitchCount("paperStitchColumns", -1));
+  $("paperStitchColumnsPlus").addEventListener("click", () => adjustPaperStitchCount("paperStitchColumns", 1));
+  $("paperStitchRowsMinus").addEventListener("click", () => adjustPaperStitchCount("paperStitchRows", -1));
+  $("paperStitchRowsPlus").addEventListener("click", () => adjustPaperStitchCount("paperStitchRows", 1));
+  ["paperStitchColumns", "paperStitchRows"].forEach((id) => {
+    $(id).addEventListener("input", renderPaperStitchPreview);
+    $(id).addEventListener("change", renderPaperStitchPreview);
+  });
+  $("paperStitchDownloadBtn").addEventListener("click", downloadPaperStitch);
+  $("paperStitchResetBtn").addEventListener("click", resetPaperStitch);
 
   $("ratioStitchInput").addEventListener("change", (event) => run(() => loadRatioStitchFiles(event.target.files)));
   $("ratioStitchFolderInput").addEventListener("change", (event) => run(() => loadRatioStitchFiles(event.target.files)));
@@ -3361,6 +3621,7 @@ async function boot() {
   setDocMode("edit");
   renderUploadFiles();
   renderHalfSwapFiles();
+  renderPaperStitchPreview();
   renderRatioStitchFiles();
   renderImageCanvas();
   try {

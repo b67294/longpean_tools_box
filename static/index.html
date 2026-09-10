@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tool Box</title>
-    <link rel="stylesheet" href="/static/style.css?v=20260812-ratio-stitch" />
+    <link rel="stylesheet" href="/static/style.css?v=20260910-paper-stitch" />
   </head>
   <body>
     <div class="app-shell">
@@ -22,7 +22,8 @@
           <button class="nav-item" data-view="wiki-json">Wiki JSON</button>
           <button class="nav-item" data-view="image">图片透明化</button>
           <button class="nav-item" data-view="table-runner">桌旗拼接</button>
-          <button class="nav-item" data-view="half-swap">Half Swap</button>
+          <button class="nav-item" data-view="half-swap">无缝包装纸修复</button>
+          <button class="nav-item" data-view="paper-stitch">包装纸拼接</button>
           <button class="nav-item" data-view="ratio-stitch">比例拼接</button>
           <button class="nav-item" data-view="image-crop">图片裁剪拼接</button>
           <button class="nav-item" data-view="upload">批量上传</button>
@@ -327,7 +328,7 @@
           <div class="split two half-swap-workspace">
             <div class="panel">
               <div class="panel-head">
-                <h3>左右 Half Swap</h3>
+                <h3>无缝包装纸修复</h3>
                 <span class="status-badge">本地批量处理</span>
               </div>
               <label id="halfSwapDropZone" class="drop-zone">
@@ -344,9 +345,47 @@
                   <input id="halfSwapSuffix" value="-halfswap" />
                 </label>
               </div>
+              <div class="submodule-title">
+                <strong>步骤一（可单独使用）：Half Swap</strong>
+                <span class="muted">只需要交换时，使用下方“交换预览 / 批量保存”即可</span>
+              </div>
+              <div class="seamless-paper-settings">
+                <div class="submodule-title seamless-paper-title">
+                  <strong>步骤二（可选）：ComfyUI 输入预处理</strong>
+                  <span class="muted">是否使用 Half Swap 结果，由你在下面明确选择</span>
+                </div>
+                <label class="field">
+                  <span>预处理模式</span>
+                  <select id="seamlessPaperMode">
+                    <option value="klein">Klein：加黑条 + Alpha Mask</option>
+                    <option value="fill">Fill：只加 Alpha Mask</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>预处理输入来源</span>
+                  <select id="seamlessPaperInputSource">
+                    <option value="original">使用当前原图</option>
+                    <option value="half-swap">使用 Half Swap 结果</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>黑条比例（%）</span>
+                  <input id="seamlessPaperBlackRatio" type="number" min="0.1" max="100" step="0.1" value="8" />
+                </label>
+                <label class="field">
+                  <span>Mask 比例（%）</span>
+                  <input id="seamlessPaperMaskRatio" type="number" min="0.1" max="100" step="0.1" value="13" />
+                </label>
+                <label class="field">
+                  <span>预处理输出后缀</span>
+                  <input id="seamlessPaperSuffix" value="-klein-input" />
+                </label>
+              </div>
               <div class="actions half-swap-actions">
                 <button id="halfSwapPreviewBtn" class="primary" disabled>交换预览</button>
-                <button id="halfSwapSaveBtn" disabled>批量保存</button>
+                <button id="halfSwapSaveBtn" disabled>仅批量保存 Half Swap</button>
+                <button id="seamlessPaperPreviewBtn" disabled>预处理预览</button>
+                <button id="seamlessPaperSaveBtn" disabled>批量预处理保存</button>
                 <button id="halfSwapClearBtn">清空</button>
               </div>
               <div id="halfSwapFiles" class="file-list empty">未选择文件</div>
@@ -362,6 +401,65 @@
                 <img id="halfSwapPreview" class="hidden" alt="Half swap 预览" />
               </div>
               <pre id="halfSwapLog" class="log short"></pre>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-paper-stitch" class="view">
+          <div class="paper-stitch-workspace">
+            <div class="panel paper-stitch-control-panel">
+              <div class="panel-head">
+                <h3>包装纸拼接</h3>
+                <span class="status-badge">浏览器本地处理</span>
+              </div>
+              <label id="paperStitchDropZone" class="drop-zone paper-stitch-drop-zone">
+                <input id="paperStitchInput" type="file" accept="image/*" />
+                <span>拖入一张图片，或点击选择图片</span>
+              </label>
+              <div id="paperStitchSourceMeta" class="unit-meta">未选择图片</div>
+
+              <div class="paper-stitch-settings" aria-label="拼接次数设置">
+                <div class="paper-stitch-stepper-group">
+                  <span class="paper-stitch-stepper-label">横向拼接</span>
+                  <div class="paper-stitch-stepper">
+                    <button id="paperStitchColumnsMinus" type="button" aria-label="减少横向拼接次数">−</button>
+                    <input id="paperStitchColumns" type="number" min="1" max="20" step="1" value="2" aria-label="横向拼接次数" />
+                    <button id="paperStitchColumnsPlus" type="button" aria-label="增加横向拼接次数">＋</button>
+                  </div>
+                </div>
+                <div class="paper-stitch-stepper-group">
+                  <span class="paper-stitch-stepper-label">竖向拼接</span>
+                  <div class="paper-stitch-stepper">
+                    <button id="paperStitchRowsMinus" type="button" aria-label="减少竖向拼接次数">−</button>
+                    <input id="paperStitchRows" type="number" min="1" max="20" step="1" value="1" aria-label="竖向拼接次数" />
+                    <button id="paperStitchRowsPlus" type="button" aria-label="增加竖向拼接次数">＋</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="help-box paper-stitch-note">
+                图片按原尺寸直接重复排列，不缩放、不裁剪。点击 ＋ / − 或输入次数后，右侧预览会立即更新。
+              </div>
+              <div class="actions paper-stitch-actions">
+                <button id="paperStitchDownloadBtn" class="primary" disabled>下载拼接图</button>
+                <button id="paperStitchResetBtn">重置</button>
+              </div>
+            </div>
+
+            <div class="panel paper-stitch-preview-panel">
+              <div class="panel-head">
+                <h3>实时预览</h3>
+                <span id="paperStitchMeta" class="muted">等待图片</span>
+              </div>
+              <div class="paper-stitch-preview-shell">
+                <div id="paperStitchPreviewEmpty" class="asset-empty">拖入图片后自动生成 2 × 1 拼接预览</div>
+                <canvas id="paperStitchPreview" class="hidden" aria-label="包装纸拼接预览"></canvas>
+              </div>
+              <div class="paper-stitch-stats">
+                <div><span>源尺寸</span><strong id="paperStitchSourceSize">-</strong></div>
+                <div><span>拼接规格</span><strong id="paperStitchGridSize">2 × 1</strong></div>
+                <div><span>输出尺寸</span><strong id="paperStitchOutputSize">-</strong></div>
+              </div>
             </div>
           </div>
         </section>
@@ -738,6 +836,6 @@
         </section>
       </main>
     </div>
-    <script src="/static/app.js?v=20260812-ratio-stitch"></script>
+    <script src="/static/app.js?v=20260910-paper-stitch"></script>
   </body>
 </html>

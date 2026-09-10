@@ -17,7 +17,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from PIL import Image, ImageChops, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageOps
 
 from wiki_client import (
     WikiClient,
@@ -201,6 +201,16 @@ class HalfSwapImagePayload(BaseModel):
 class HalfSwapPayload(BaseModel):
     output_dir: str = ""
     suffix: str = "-halfswap"
+    images: list[HalfSwapImagePayload]
+
+
+class SeamlessPaperPayload(BaseModel):
+    output_dir: str = ""
+    suffix: str = "-klein-input"
+    mode: str = "klein"
+    apply_half_swap: bool = True
+    black_ratio: float = 8.0
+    mask_ratio: float = 13.0
     images: list[HalfSwapImagePayload]
 
 
@@ -839,6 +849,57 @@ def half_swap_image(source: Image.Image) -> Image.Image:
     swapped.paste(image.crop((mid, 0, width, height)), (0, 0))
     swapped.paste(image.crop((0, 0, mid, height)), (width - mid, 0))
     return swapped
+
+
+def round_up_to_multiple(value: float, multiple: int = 8) -> int:
+    return int((int(value + multiple - 1) // multiple) * multiple)
+
+
+def seamless_paper_input(
+    source: Image.Image,
+    mode: str,
+    black_ratio: float,
+    mask_ratio: float,
+) -> tuple[Image.Image, Image.Image, dict[str, Any]]:
+    image = source.convert("RGBA")
+    width, height = image.size
+    mode = (mode or "klein").strip().lower()
+    if mode not in {"klein", "fill"}:
+        raise ValueError("mode must be klein or fill")
+    if not 0 < mask_ratio <= 100:
+        raise ValueError("mask ratio must be between 0 and 100")
+    if not 0 < black_ratio <= 100:
+        raise ValueError("black ratio must be between 0 and 100")
+
+    black_width = round_up_to_multiple(max(1, width * black_ratio / 100.0), 8)
+    mask_width = round_up_to_multiple(max(1, width * mask_ratio / 100.0), 8)
+    if mode == "klein":
+        black_width = max(96, black_width)
+        mask_width = max(mask_width, black_width + 64)
+    black_width = min(width, black_width)
+    mask_width = min(width, mask_width)
+
+    center_x = width // 2
+    mask_left = max(0, center_x - mask_width // 2)
+    mask_right = min(width, mask_left + mask_width)
+    mask_left = max(0, mask_right - mask_width)
+    mask = Image.new("L", image.size, 0)
+    ImageDraw.Draw(mask).rectangle((mask_left, 0, mask_right - 1, height - 1), fill=255)
+
+    result = image.copy()
+    if mode == "klein":
+        black_left = max(0, center_x - black_width // 2)
+        black_right = min(width, black_left + black_width)
+        black_left = max(0, black_right - black_width)
+        ImageDraw.Draw(result).rectangle((black_left, 0, black_right - 1, height - 1), fill=(0, 0, 0, 255))
+    result.putalpha(mask.point(lambda value: 255 - value))
+    return result, mask, {
+        "mode": mode,
+        "black_ratio": black_ratio,
+        "mask_ratio": mask_ratio,
+        "black_width": black_width if mode == "klein" else 0,
+        "mask_width": mask_width,
+    }
 
 
 def ratio_stitch_plan(width: int, height: int, ratio_width: int, ratio_height: int) -> dict[str, int]:
@@ -1911,6 +1972,60 @@ def process_half_swap(payload: HalfSwapPayload) -> dict[str, Any]:
                     "data_url": image_to_data_url(swapped),
                 }
             )
+        except Exception as exc:
+            results.append({"file_name": item.file_name, "ok": False, "error": str(exc)})
+    return {"output_dir": str(output_dir), "results": results}
+
+
+@app.post("/api/seamless-paper/process")
+def process_seamless_paper(payload: SeamlessPaperPayload) -> dict[str, Any]:
+    if not payload.images:
+        raise HTTPException(status_code=400, detail="Please select images first")
+    output_dir_text = payload.output_dir.strip()
+    if not output_dir_text:
+        raise HTTPException(status_code=400, detail="Please enter an output folder")
+    output_dir = Path(output_dir_text).expanduser()
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Cannot create output folder: {exc}") from exc
+    if not output_dir.is_dir():
+        raise HTTPException(status_code=400, detail="Output path is not a folder")
+
+    results = []
+    used_names: set[str] = set()
+    for item in payload.images:
+        try:
+            source = open_data_url_rgba_image(item.data_url)
+            working = half_swap_image(source) if payload.apply_half_swap else source
+            processed, _mask, meta = seamless_paper_input(
+                working,
+                payload.mode,
+                payload.black_ratio,
+                payload.mask_ratio,
+            )
+            output_name = safe_output_file_name(item.file_name, payload.suffix)
+            if output_name in used_names or (output_dir / output_name).exists():
+                base = Path(output_name).stem
+                index = 2
+                while True:
+                    candidate = f"{base}-{index}.png"
+                    if candidate not in used_names and not (output_dir / candidate).exists():
+                        output_name = candidate
+                        break
+                    index += 1
+            used_names.add(output_name)
+            output_path = output_dir / output_name
+            processed.save(output_path, format="PNG", optimize=True)
+            results.append({
+                "file_name": item.file_name,
+                "ok": True,
+                "output_path": str(output_path),
+                "width": processed.width,
+                "height": processed.height,
+                "data_url": image_to_data_url(processed),
+                **meta,
+            })
         except Exception as exc:
             results.append({"file_name": item.file_name, "ok": False, "error": str(exc)})
     return {"output_dir": str(output_dir), "results": results}
